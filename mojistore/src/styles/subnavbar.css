@@ -14,13 +14,23 @@
   overflow-y: visible;
 }
 
+/* Row of category pills */
 .ms-subnav .row{
+  --base-pad-bottom: .95rem;     /* base bottom space under pills */
+  --row-gap: clamp(.6rem, 1.4vw, .6rem); /* expose row gap for JS/CSS math */
+
   display:flex;
   flex-wrap:wrap;
-  gap:.6rem;
-  padding:.55rem 0;                 /* slimmer row */
+
+  /* separate horizontal/vertical gaps so we can open the space between rows */
+  column-gap:.6rem;                  /* horizontal spacing between pills */
+  row-gap:var(--row-gap);            /* vertical spacing between rows */
+
+  /* top | left&right | bottom — add L/R padding and more bottom space */
+  padding:.6rem clamp(.5rem, 2vw, .3rem) var(--base-pad-bottom);
   align-items:center;
   position:relative;
+  background: var(--color-bg); /* lets the mask blend perfectly */
 }
 
 .ms-subnav .ms-cat{ position:relative; display:inline-block; }
@@ -54,7 +64,7 @@
 /* Dropdown anchor (directly below) */
 .ms-subnav .ms-mega{
   position:absolute;
-  top: calc(100% + 6px); /* no gap → no flicker */
+  top: calc(100% + 6px); /* small visual gap to separate from pill row */
   left:0;                /* default: align under start of pill */
   display:none;
   z-index: var(--z-dropdown);
@@ -149,4 +159,91 @@
 }
 @media (prefers-reduced-motion: reduce){
   .ms-subnav .ms-mega-card{ animation:none; }
+}
+
+/* ==== Collapsible row toggle (arrow) ===================================== */
+.ms-subnav .row[data-collapsed="1"]{
+  position: relative;
+  overflow: visible; /* don't clip dropdowns */
+
+  /* comfy collapsed spacing:
+     - JS provides --first-row-h (actual first row height incl. gap)
+  */
+  --collapsed-extra: .40rem;
+  max-height: calc(var(--first-row-h, 0px) + var(--collapsed-extra));
+  padding-bottom: var(--base-pad-bottom);
+}
+
+/* Opaque visual mask to hide wrapped pills (not dropdowns) */
+.ms-subnav .row[data-collapsed="1"]::after{
+  content:"";
+  position:absolute;
+  left:0; right:0;
+  /* use exact clamp edge from JS (bottom of row-1 + row-gap) */
+  top: var(--first-row-edge, var(--first-row-h, 0px));
+  bottom:-1px;
+  background: var(--color-bg);   /* same as subnav background */
+  pointer-events:auto;           /* block clicks on hidden pills */
+  z-index: calc(var(--z-dropdown) - 1); /* under dropdown, over pills */
+}
+
+/* Disable interaction / fully hide second+ row pills while collapsed */
+.ms-subnav .row[data-collapsed="1"] .ms-cat.is-below{
+  pointer-events: none;
+  visibility: hidden; /* guarantees no peeking at edges */
+}
+
+/* Arrow overlay container */
+.ms-subnav .ms-row-toggle {
+  position: absolute;
+  top: 0;
+  /* align the arrow to the same inset as the row’s right padding */
+  right: clamp(.5rem, 2vw, 1.25rem);
+
+  /* match first-row height via inline style (JS sets height), with sensible fallback */
+  height: 2.4rem;
+  display: flex;
+  align-items: center;
+  padding-left: 18px; /* space for gradient */
+
+  /* sit above the mask (same token as dropdown is fine) */
+  z-index: var(--z-dropdown);
+
+  /* Gentle fade to make the arrow feel "at end of the row" */
+  background: linear-gradient(
+    to right,
+    color-mix(in oklab, var(--color-bg) 0%, transparent) 0%,
+    var(--color-bg) 42%,
+    var(--color-bg) 100%
+  );
+}
+
+.ms-subnav .ms-row-toggle-btn {
+  top:15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  width: 28px;
+  border-radius: var(--r-btn);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  transition: transform .12s ease, background-color .12s ease, border-color .12s ease;
+  cursor: pointer;
+}
+.ms-subnav .ms-row-toggle-btn:hover {
+  transform: translateY(-1px);
+  background: color-mix(in oklab, var(--color-surface) 75%, var(--color-accent));
+  border-color: var(--color-accent);
+}
+
+/* Trim extra space only when expanded */
+.ms-subnav .row[data-collapsed="0"]{
+  padding-bottom: .4rem; /* adjust to taste */
+}
+/* When all categories fit on one line, distribute space evenly across the row */
+.ms-subnav .row[data-single="1"]{
+  justify-content: space-evenly;  /* equal space before, between, after pills */
+  column-gap: 0;                  /* avoid double-spacing with flex “evenly” */
 }
