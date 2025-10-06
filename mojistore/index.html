@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en" class="dark"> <!-- default dark for cyberpunk; toggle at runtime -->
+
+<head>
+  <script>
+    (function () {
+      var t = localStorage.getItem('theme') || 'dark';
+      var html = document.documentElement;
+      html.classList.add('theme-instant');        // no-transition guard
+      html.setAttribute('data-theme', t);
+      html.classList.toggle('dark', t !== 'light');
+      setTimeout(function () { html.classList.remove('theme-instant'); }, 0);
+    })();
+  </script>
+
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+  <title>MojiStore</title>
+</head>
+
+<body class="bg-zinc-950 text-zinc-100">
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
+</body>
+
+</html>

@@ -1,0 +1,145 @@
+/* src/styles/auth-yeti.css */
+/* Flat, token-driven. Works for light & dark via theme.css variables. */
+
+:root{
+  --bg: var(--color-bg, #f7f8fa);
+  --card: var(--color-surface, #ffffff);
+  --text: var(--color-text, #121826);
+  --muted: var(--color-muted, #6b7280);
+  --line: var(--color-border, #e5e7eb);
+  --accent: var(--color-accent, #1f6feb);
+  --accent-ink: #0b3b8a;
+  --radius: 16px;
+  --shadow: 0 8px 24px rgba(2, 8, 20, 0.06);
+}
+
+/* ---------- Page shells ---------- */
+.y-auth{
+  min-height:80dvh;
+  display:grid; place-items:center;
+  padding:24px;
+  background:var(--bg); color:var(--text);
+}
+
+/* Card */
+.y-card{
+  width:min(440px,100%);
+  background:var(--card);
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+  padding:20px 22px 22px;
+}
+
+/* Header */
+.y-head{ display:grid; justify-items:center; gap:8px; margin-bottom:8px; }
+.y-title{ font-size:22px; font-weight:700; margin:0; }
+.y-sub{ font-size:13px; color:var(--muted); margin:0 0 4px; }
+
+/* ------- Minimal “kid” avatar (no hands) ------- */
+.y-kid{ position:relative; }
+.y-kid .kid-svg{ display:block; width:132px; height:132px; }
+
+/* pupils follow CSS vars */
+.y-kid .pupil{
+  transform: translate(var(--eye-x,0), var(--eye-y,0));
+  transition: transform .12s ease;
+  transform-origin: center;
+}
+
+/* eye state toggles */
+.y-kid .eye-open{ display:inline; }
+.y-kid .eye-closed{ display:none; }
+.y-kid.is-closed .eye-open{ display:none; }
+.y-kid.is-closed .eye-closed{ display:inline; }
+
+/* Legacy yeti/arms present in old markup? Hide them. */
+.y-arms{ display:none !important; }
+
+/* Form */
+.y-form{ display:grid; gap:12px; margin-top:8px; }
+.y-field{ display:grid; gap:6px; }
+.y-label{ font-size:13px; color:var(--muted); }
+
+.y-input{
+  height:44px; width:100%;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:#fff; color:var(--text);
+  padding:0 12px; outline:none;
+  transition:border-color .15s ease, box-shadow .15s ease;
+}
+.y-input::placeholder{ color:#9aa3af; }
+.y-input:focus{
+  border-color:#bfd3f8;
+  box-shadow:0 0 0 4px rgba(31,111,235,.12);
+}
+
+.y-passrow{ display:block; }
+
+/* Buttons */
+.y-btn{
+  height:46px; border:1px solid var(--accent);
+  background:var(--accent); color:#fff;
+  border-radius:12px; font-weight:600; letter-spacing:.2px;
+  cursor:pointer; transition:filter .08s linear, transform .05s ease;
+}
+.y-btn:hover{ filter:brightness(1.05); }
+.y-btn:active{ transform:translateY(1px); }
+.y-btn:disabled{ opacity:.65; cursor:not-allowed; transform:none; }
+
+/* Links row (no underline; color change only) */
+.y-row{
+  display:flex; gap:.75rem; justify-content:center; align-items:center;
+  margin-top:.9rem; font-size:13px; padding-bottom:.25rem;
+}
+.y-sep{ width:1px; height:14px; background:var(--line); }
+.y-link{
+  color:var(--accent-ink);
+  text-decoration:none; border:0;
+}
+.y-link:hover{
+  color:var(--accent);
+  text-decoration:none;
+}
+
+/* Alerts */
+.y-alert{
+  background:#fff5f5; border:1px solid #fecaca; color:#b91c1c;
+  padding:10px 12px; border-radius:10px; font-size:13px; margin-bottom:6px;
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width:420px){
+  .y-card{ padding:16px; border-radius:14px; }
+}
+
+/* Input contrast in both themes */
+.y-auth .y-input{
+  color:var(--color-text) !important;
+  background:var(--color-surface-2,#fff) !important;
+  border:1px solid var(--color-border);
+  border-radius:10px; height:42px; padding:0 .85rem; width:100%;
+  caret-color: var(--color-neon, #1f6feb);
+}
+.y-auth .y-input::placeholder{ color: var(--color-muted,#6b7280) !important; }
+.y-auth .y-input:focus{
+  border-color: var(--color-neon,#1f6feb);
+  box-shadow:0 0 0 3px color-mix(in oklab, var(--color-neon) 20%, transparent);
+}
+
+/* Fix Chrome autofill */
+.y-auth .y-input:-webkit-autofill,
+.y-auth .y-input:-webkit-autofill:hover,
+.y-auth .y-input:-webkit-autofill:focus{
+  -webkit-text-fill-color: var(--color-text) !important;
+  transition: background-color 99999s ease-out 0s;
+}
+
+/* “Show password” as subtle button below field */
+.y-show-toggle{
+  margin-top:.28rem; margin-bottom:.1rem;
+  padding:0; background:none; border:0;
+  font-size:.85rem; color:var(--muted); cursor:pointer; line-height:1.2;
+}
+.y-show-toggle:hover{ color:var(--text); }

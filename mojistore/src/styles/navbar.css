@@ -1,0 +1,123 @@
+/* NAVBAR — strictly scoped to .ms-nav */
+
+.ms-nav{
+  position: sticky; top: 0;
+  z-index: var(--z-navbar);
+  width: 100%;
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
+}
+.ms-nav .row{
+  height: 58px;
+  display: flex; align-items: center;
+  gap: 10px;
+}
+
+/* Brand */
+.ms-nav .brand{
+  font-weight: 800; letter-spacing: .2px; white-space: nowrap;
+  margin-right: 6px;
+}
+
+/* Pills (kept, but slim) */
+.ms-nav .pill{
+  display:inline-flex; align-items:center; gap:.45rem;
+  height: 36px; padding: 0 .75rem;
+  border:1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-radius: var(--r-btn);
+  transition: border-color .18s ease, background-color .18s ease, color .18s ease, transform .18s ease;
+}
+.ms-nav .pill:hover{
+  transform: translateY(-1px);
+  border-color: color-mix(in oklab, var(--color-border) 65%, var(--color-text));
+}
+.ms-nav .btn-icon{ width:36px; padding:0; justify-content:center; }
+
+/* Spacing around brand / location / search */
+.ms-nav .loc-wrap{ margin-left: 6px; margin-right: 8px; }
+.ms-nav .search-wrap{ margin-left: 8px; }
+
+/* Cart badge */
+.ms-nav .badge{
+  position:absolute; right:-6px; top:-6px;
+  background: var(--color-magenta); color:#fff; font-size:10px; line-height:1;
+  padding:2px 6px; border-radius:999px;
+}
+
+/* Search (sleek + clear '×') */
+.ms-nav .search-wrap{ position:relative; flex: 1 1 640px; min-width: 260px; }
+.ms-nav .search-input{
+  width:100%; height:36px;
+  border:1px solid var(--color-border);
+  background: var(--color-surface);
+  color:var(--color-text);
+  border-radius: var(--r-btn);
+  padding:0 2.2rem 0 2.2rem;
+  outline:none;
+}
+.ms-nav .search-input::placeholder{ color:var(--color-muted); }
+.ms-nav .search-input:focus{ border-color: var(--color-neon); }
+.ms-nav .search-ico{
+  position:absolute; left:.6rem; top:50%; transform:translateY(-50%); opacity:.75;
+}
+.ms-nav .search-clear{
+  position:absolute; right:.6rem; top:50%; transform:translateY(-50%); opacity:.75;
+}
+
+/* Suggest dropdown */
+.ms-nav .suggest{
+  position:absolute; left:0; right:0; top:calc(100% + 8px);
+  z-index: var(--z-popover);
+  background: var(--color-surface);
+  border:1px solid var(--color-border);
+  border-radius: var(--r-btn);
+  box-shadow: var(--shadow-1);
+  max-height: 420px; overflow:auto;
+}
+.ms-nav .item{
+  display:block; width:100%; text-align:left;
+  padding:.55rem .7rem; color:var(--color-text);
+  background:transparent; border:0;
+}
+.ms-nav .item:hover{ background: var(--color-surface-2); }
+
+/* Menus (location & login) — boxed options */
+.ms-nav .menu{
+  position:absolute; top:calc(100% + 8px); right:0;
+  z-index: var(--z-popover);
+  background: var(--color-surface);
+  border:1px solid var(--color-border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-1);
+  padding: 8px;
+  min-width: 220px;
+}
+.ms-nav .menu-list{ display:flex; flex-direction:column; gap:6px; }
+.ms-nav .menu-item{
+  display:flex; align-items:center; justify-content:space-between; gap:.8rem;
+  padding:.6rem .7rem;
+  border:1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  width:100%; text-align:left;
+  transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+}
+
+.ms-nav .menu-item:hover{
+  background: color-mix(in oklab, var(--color-surface-2) 85%, var(--color-neon) 15%);
+}
+/* Mobile: only hamburger, brand, search */
+@media (max-width: 900px){
+  .ms-nav .loc-wrap,
+  .ms-nav a.pill,
+  .ms-nav button.pill{
+    display: none;
+  }
+  .ms-nav .pill.hamburger{ display: inline-flex; }
+  .ms-nav .brand{ margin-right: 4px; }
+  .ms-nav .search-wrap{ flex: 1 1 auto; min-width: 0; margin-left: 6px; }
+}
+

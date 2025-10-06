@@ -1,0 +1,58 @@
+/* Keep ProductCard heights consistent across rails and grids without hard-coding
+   a total height. We only reserve a fixed slot for the title and let the rest flow. */
+
+/* Tunables (safe defaults) */
+:root{
+  --pc-thumb-ratio: 1 / 1;             /* square media area by default */
+  --pc-title-lines: 2;                  /* number of lines to reserve for titles */
+  --pc-title-font-size: 1rem;           /* keep near existing */
+  --pc-title-line-height: 1.25;         /* line height for clamping */
+}
+
+/* Card is a column stack */
+.pc-card{
+  display: flex;
+  flex-direction: column;
+}
+
+/* Stable media area height using CSS aspect-ratio so grid alignment doesn't jump */
+.pc-thumb{
+  aspect-ratio: var(--pc-thumb-ratio);
+  /* If your SmartImage already sets a height, this just normalizes it.
+     Remove if you explicitly control image height elsewhere. */
+}
+
+/* Body fills remaining space; footer sticks to bottom */
+.pc-body{
+  display: flex;
+  flex-direction: column;
+  min-height: 0;         /* allow flex children to shrink if needed */
+}
+.card-foot{
+  margin-top: auto;      /* pin availability/price row to bottom */
+}
+
+/* Title gets a fixed-height slot via clamp.
+   This alone is the source of card-height uniformity. */
+.pc-title{
+  font-size: var(--pc-title-font-size);
+  line-height: var(--pc-title-line-height);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--pc-title-lines);
+  overflow: hidden;
+
+  /* Reserve the exact space for the chosen number of lines */
+  min-height: calc(var(--pc-title-lines) * var(--pc-title-font-size) * var(--pc-title-line-height));
+  max-height: calc(var(--pc-title-lines) * var(--pc-title-font-size) * var(--pc-title-line-height));
+}
+
+/* Optional: keep meta block from expanding the card if it wraps oddly */
+.pc-meta{
+  /* If you see meta wrapping change heights, you can also reserve 1 row like this:
+     min-height: 1.25rem;
+  */
+}
+
+/* Rails often add hover/glow via the rail CSS; do NOT add box-shadow here
+   to avoid fighting the existing design system. */

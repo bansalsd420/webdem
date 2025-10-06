@@ -1,0 +1,13 @@
+/* Global aggregator: ONLY imports, no Tailwind here.
+   Tailwind (if used) must be inside theme.css only. */
+
+@import './theme.css';            /* tokens, body, containers, site paddings */
+@import './components.css';       /* product card, buttons, pills, utilities */
+@import './navbar.css';           /* main navbar only */
+@import './subnavbar.css';        /* subnav + mega menu only */
+
+/* home page (namespaced) */
+
+@import './product-detail.css';   /* PDP-only styles */
+@import './filters.css';          /* filters list, sidebar scrollbars */
+@import './static.css';           /* company pages (About/FAQ/etc.) */

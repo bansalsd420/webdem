@@ -1,0 +1,29 @@
+{
+  "name": "moji-api",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "postinstall": "node -e \"process.env.PUPPETEER_CACHE_DIR = process.env.PUPPETEER_CACHE_DIR || '/www/.cache/puppeteer'\" && npx --yes puppeteer@24.23.0 browsers install chrome"
+  },
+  "dependencies": {
+    "axios": "1.12.2",
+    "bcryptjs": "2.4.3",
+    "cookie-parser": "1.4.7",
+    "cors": "2.8.5",
+    "date-fns": "4.1.0",
+    "dotenv": "16.4.5",
+    "express": "4.19.2",
+    "jsonwebtoken": "9.0.2",
+    "mysql2": "3.11.3",
+    "node-fetch": "3.3.2",
+    "pdfkit": "0.17.2",
+    "puppeteer": "24.23.0",
+    "sharp": "0.34.4"
+  },
+  "devDependencies": {
+    "nodemon": "3.1.4"
+  }
+}

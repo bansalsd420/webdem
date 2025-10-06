@@ -1,0 +1,95 @@
+/* Theme tokens */
+:root:not(.dark), [data-theme="light"] {
+  --filter-bg: #ffffff;
+  --filter-border: rgba(0,0,0,.12);
+  --filter-fg: #1f2328;
+  --filter-item-bg: #ffffff;
+  --filter-item-bg-hover: #f5f7fa;
+}
+.dark, [data-theme="dark"] {
+  --filter-bg: #121314;
+  --filter-border: rgba(255,255,255,.10);
+  --filter-fg: #e5e7eb;
+  --filter-item-bg: rgba(26,26,32,.55);
+  --filter-item-bg-hover: rgba(26,26,32,.72);
+}
+
+/* Panels & inputs used by Products.jsx */
+.filters-panel{
+  border:1px solid var(--filter-border);
+  background: var(--filter-bg);
+  border-radius: 12px;
+  padding: 12px;
+}
+.filters-input{
+  border:1px solid var(--filter-border);
+  background: var(--filter-bg);
+  color: var(--filter-fg);
+  border-radius: 10px;
+  padding: .40rem .65rem;
+  font-size: .875rem;
+}
+.filters-input:focus{ outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-neon) 25%, transparent); }
+.filters-clear{
+  border:1px solid var(--filter-border);
+  background: var(--filter-bg);
+  color: var(--filter-fg);
+  border-radius: 12px;
+  padding: .5rem .75rem;
+  font-size: .875rem;
+  transition: background .15s ease, border-color .15s ease;
+}
+.filters-clear:hover{ border-color: var(--color-magenta, var(--color-neon)); }
+
+/* Sidebar option row — no radio dots */
+.filter-option{
+  width:100%; display:flex; align-items:center; justify-content:space-between; gap:.5rem;
+  border:1px solid var(--filter-border);
+  background: var(--filter-item-bg);
+  color: var(--filter-fg);
+  padding:.5rem .6rem; border-radius:10px; text-align:left;
+  transition: border-color .15s ease, background .15s ease, color .15s ease;
+}
+.filter-option:hover{ background: var(--filter-item-bg-hover); }
+.filter-option.is-active{
+  border-color: var(--color-neon);
+  background: color-mix(in srgb, var(--filter-item-bg) 90%, var(--color-neon) 10%);
+}
+.filter-option .count{
+  font-size: .75rem;
+  opacity: .7;
+}
+
+/* Cool scrollbars only inside filter lists */
+.filters-scroll{
+  max-height: 14rem;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #3a3f49 transparent;
+}
+.filters-scroll::-webkit-scrollbar{ width: 10px; }
+.filters-scroll::-webkit-scrollbar-track{ background: transparent; }
+.filters-scroll::-webkit-scrollbar-thumb{
+  background: #2f323b; border: 2px solid transparent; border-radius: 999px; background-clip: padding-box;
+}
+.filters-scroll::-webkit-scrollbar-thumb:hover{ background: #3a3f49; background-clip: padding-box; }
+
+/* Input / pills in filter sidebars */
+.filters .search,
+.filters .pill,
+.filters .group button,
+.filters .group .option {
+  background-color: var(--filter-bg);
+  border: 1px solid var(--filter-border);
+  color: var(--filter-fg);
+}
+
+
+
+/* Active pill (selected item) */
+.filters .pill.is-active {
+  background: rgba(0,0,0,.04);
+}
+:root.dark .filters .pill.is-active {
+  background: rgba(255,255,255,.06);
+}

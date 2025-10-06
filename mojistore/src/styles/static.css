@@ -1,0 +1,47 @@
+/* src/styles/static.css */
+.static-page {
+  color: var(--color-text);
+  max-width: 80rem;
+  margin: 0 auto;
+  padding: 1.25rem 1rem 3rem;
+}
+.static-hero {
+  padding: 2.5rem 0 1rem;
+  display: grid;
+  gap: .5rem;
+  border-bottom: 1px solid var(--color-border);
+}
+.static-title { font-weight: 800; font-size: clamp(1.4rem, 1.6vw, 2rem); }
+.static-sub { color: var(--color-muted); max-width: 60ch; }
+
+.static-section {
+  padding: 1.25rem 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.static-section:last-child { border-bottom: 0; }
+.static-head { font-weight: 700; margin-bottom: .5rem; }
+.static-text { color: var(--color-muted); line-height: 1.6; }
+.static-list { padding-left: 1rem; display: grid; gap: .4rem; color: var(--color-muted); }
+.static-kbd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: rgba(255,255,255,.04); padding: 0 .35rem; border-radius: .35rem; }
+
+.faq-item { border: 1px solid var(--color-border); border-radius: .75rem; background: rgba(255,255,255,.02); }
+.faq-q { cursor: pointer; padding: .8rem 1rem; font-weight: 600; display: flex; align-items: center; justify-content: space-between; }
+.faq-a { padding: .8rem 1rem .95rem; color: var(--color-muted); border-top: 1px dashed var(--color-border); }
+.faq-q:hover { background: rgba(255,255,255,.03); }
+
+.contact-grid { display: grid; gap: 1rem; grid-template-columns: 1fr 1fr; }
+@media (max-width: 900px) { .contact-grid { grid-template-columns: 1fr; } }
+.contact-card { border: 1px solid var(--color-border); border-radius: .75rem; padding: 1rem; background: rgba(255,255,255,.02); }
+.contact-form { border: 1px solid var(--color-border); border-radius: .75rem; padding: 1rem; display: grid; gap: .6rem; background: rgba(255,255,255,.02); }
+.input, .textarea {
+  width: 100%; border: 1px solid var(--color-border); border-radius: .6rem;
+  background: var(--color-surface); color: var(--color-text); padding: .6rem .7rem;
+}
+.textarea { min-height: 140px; resize: vertical; }
+.btn {
+  display: inline-flex; align-items: center; gap: .4rem;
+  border: 1px solid var(--color-neon); padding: .55rem .9rem; border-radius: .6rem;
+  background: rgba(0,255,225,.08); color: var(--color-text);
+}
+.btn:hover { background: rgba(0,255,225,.14); transform: translateY(-1px); }
+.note { color: var(--color-muted); font-size: .92rem; }

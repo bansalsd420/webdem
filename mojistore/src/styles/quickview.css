@@ -1,0 +1,95 @@
+/* Quick View modal — dark/light aware using theme tokens */
+.qv-overlay{
+  position: fixed; inset: 0; z-index: var(--z-modal);
+  background: color-mix(in oklab, black 55%, transparent);
+  display: grid; place-items: center;
+  animation: qvFade .15s ease-out both;
+  padding: 10px;
+}
+
+.qv-modal{
+  width: min(1200px, 96vw);
+  max-height: calc(96vh - 16px);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-2);
+  position: relative;
+  overflow: hidden;
+  animation: qvPop .18s ease-out both;
+  display: grid;
+}
+
+.qv-close{
+  position: absolute; right: 10px; top: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+  border-radius: 999px; padding: .35rem;
+}
+
+/* layout */
+.qv-grid{
+  display: grid; gap: 0;
+  grid-template-columns: 48% 52%;
+  align-items: stretch;
+}
+@media (max-width: 900px){
+  .qv-grid{ grid-template-columns: 1fr; }
+}
+
+/* -------- Media column (taller, contain, responsive) -------- */
+
+:root{
+  --qv-media-h: 460px;   /* base */
+}
+@media (min-width: 1200px){ :root{ --qv-media-h: 520px; } }
+@media (min-width: 1600px){ :root{ --qv-media-h: 590px; } }
+@media (min-width: 1920px){ :root{ --qv-media-h: 660px; } }
+@media (max-width: 900px){
+  :root{ --qv-media-h: clamp(260px, 56vw, 440px); }
+}
+
+.qv-media{
+  padding: 16px;
+  background: var(--color-surface-2);
+  display: grid;
+  align-items: center;
+}
+
+/* Override the card’s .product-img only inside Quick View */
+.qv-media .product-img{
+  height: var(--qv-media-h) !important;  /* taller than card */
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--color-surface);
+  display: grid; /* lets the child fill */
+}
+
+/* Always show full image in Quick View (no crop) */
+.qv-media .product-img :where(img, picture, picture > img){
+  width: 100%;
+  height: 100%;
+  object-fit: contain !important; /* force contain here */
+  object-position: center;
+  display: block;
+  background: transparent;
+}
+
+/* -------- Body column -------- */
+
+.qv-body{ padding: 18px 20px 20px; overflow: auto; }
+.qv-title{ font-size: clamp(1.05rem, 1rem + .4vw, 1.35rem); font-weight: 800; line-height: 1.2; }
+.qv-sku{ margin-top: .25rem; color: var(--color-muted); font-size: .84rem; }
+
+.qv-meta{ display:flex; gap:.5rem .75rem; align-items:center; flex-wrap:wrap; margin-top:.6rem; }
+.qv-meta .qv-cat,
+.qv-meta .qv-sub{ color: color-mix(in oklab, var(--color-neon) 34%, var(--color-text) 66%); }
+
+.qv-price-row{ margin-top:.7rem; font-size:1.05rem; font-weight:700; }
+.qv-actions{ margin-top:.9rem; display:flex; gap:.6rem; flex-wrap:wrap; }
+.qv-desc{ margin-top:.9rem; color: var(--color-muted); line-height: 1.55; }
+.qv-links{ margin-top: .9rem; }
+
+/* animations */
+@keyframes qvFade{ from{ opacity:0 } to{ opacity:1 } }
+@keyframes qvPop{ from{ opacity:0; transform: translateY(10px) scale(.98) } to{ opacity:1; transform: translateY(0) scale(1) } }

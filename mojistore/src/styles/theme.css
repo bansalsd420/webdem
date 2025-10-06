@@ -1,0 +1,246 @@
+@import "tailwindcss";
+
+/* ============================== DARK (default) ============================== */
+/* Neutral blacks (no blue cast) + a clear layer scale for z-index. */
+:root {
+  /* Neutral surfaces */
+  --color-bg: #0a0a0b;
+  /* page */
+  --color-surface: #101012;
+  /* cards/nav bars */
+  --color-surface-2: #151517;
+  /* tiles, hovers */
+  --color-border: #242426;
+
+  --color-text: #e8edf5;
+  --color-muted: #99a1af;
+
+  /* Accents */
+  --color-neon: #22d3ee;
+  /* cyber blue */
+  --color-magenta: #ff4d8d;
+  --color-gold: #f3c64b;
+  --color-accent: var(--color-neon);
+  --color-success: #16a34a;
+  --color-danger: #ef4444;
+
+  /* Wishlist colors (Navbar uses these semantics in JS) */
+  --wishlist-stroke-dark: #ffffff;
+  --wishlist-fill-dark: #ffffff;
+  --wishlist-stroke-light: #111827;
+  --wishlist-fill-light: #e11d48;
+
+  /* Radii */
+  --r-card: 16px;
+  --r-btn: 8px;
+  --r-chip: 8px;
+
+  /* Site clamp */
+  --site-max: 1760px;
+  --site-pad: 10px;
+
+  /* Cards */
+  --card-img-h: 280px;
+
+  /* Shadows */
+  --shadow-1: 0 10px 30px rgba(0, 0, 0, .40);
+  --shadow-2: 0 22px 60px rgba(0, 0, 0, .48);
+
+  /* Layer scale */
+  --z-subnav: 40;
+  --z-navbar: 60;
+  --z-dropdown: 75;
+  --z-popover: 70;
+  /* nav menus, search suggest */
+  --z-overlay: 900;
+  /* scrims */
+  --z-modal: 1000;
+  /* dialogs, quick view */
+
+  color-scheme: dark;
+}
+
+/* ============================== LIGHT (white) =============================== */
+html[data-theme="light"] {
+  --color-bg: #ffffff;
+  --color-surface: #ffffff;
+  --color-surface-2: #f6f7fb;
+  --color-border: #e6e8ee;
+
+  --color-text: #111827;
+  --color-muted: #657084;
+
+  --color-neon: #06b6d4;
+  --color-magenta: #db2777;
+  --color-gold: #e2b23b;
+  --color-accent: var(--color-neon);
+  --color-success: #16a34a;
+  --color-danger: #ef4444;
+
+  --site-max: 1760px;
+  --site-pad: 10px;
+
+  --shadow-1: 0 8px 24px rgba(16, 24, 40, .10);
+  --shadow-2: 0 18px 42px rgba(16, 24, 40, .14);
+
+  /* Same layer scale in light mode */
+  --z-subnav: 40;
+  --z-navbar: 60;
+  --z-popover: 70;
+  --z-dropdown: 75;
+  --z-overlay: 900;
+  --z-modal: 1000;
+
+  color-scheme: light;
+}
+
+/* Ultra-wide bump */
+@media (min-width: 1920px) {
+  :root {
+    --site-max: 1920px;
+  }
+}
+
+/* ============================== Minimal Base ================================ */
+html,
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+::selection {
+  background: color-mix(in oklab, var(--color-neon) 25%, transparent);
+  color: var(--color-text);
+}
+
+/* Cyber-blue hover for all links/text marked as links */
+a,
+.link {
+  color: var(--color-text);
+  transition: color .15s ease, border-color .15s ease, text-shadow .15s ease;
+}
+
+a:hover,
+.link:hover {
+  color: var(--color-neon);
+  text-shadow: 0 0 0 transparent;
+}
+
+/* Slim scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 999px;
+}
+
+
+/* --- Instant theme swap guard ------------------------------------------- */
+/* When Navbar adds .theme-instant on <html>, kill all transitions/animations
+   for a single paint so the dark<->light flip is truly instantaneous. */
+html.theme-instant, html.theme-instant * , html.theme-instant *::before, html.theme-instant *::after{
+  transition: none !important;
+  animation: none !important;
+}
+
+/* Container clamp helpers used by app wrappers */
+.max-w-7xl {
+  max-width: var(--site-max) !important;
+}
+
+.px-3 {
+  padding-left: var(--site-pad) !important;
+  padding-right: var(--site-pad) !important;
+}
+
+.sm\:px-6 {
+  padding-left: calc(var(--site-pad) + 8px) !important;
+  padding-right: calc(var(--site-pad) + 8px) !important;
+}
+/* Make common dark Tailwind utilities adapt in light mode */
+html:not(.dark) .bg-zinc-900 { background-color: var(--color-surface-2) !important; }
+html:not(.dark) .border-zinc-800 { border-color: var(--color-border) !important; }
+html:not(.dark) .text-zinc-400 { color: var(--color-muted) !important; }
+
+/* In-stock / out-of-stock pills: outline-only, readable in light mode */
+.pill--ok  { background: transparent; border-color: rgba(16,185,129,.55); color: rgb(5,150,105); }
+.pill--bad { background: transparent; border-color: rgba(248,113,113,.6);  color: rgb(185,28,28); }
+/* --- Footer breathing room (all pages) --- */
+main, .page-shell, .account-page, .products-page, .pdp-page {
+  padding-bottom: clamp(32px, 4vw, 56px);
+}
+
+/* Remove any harsh footer top borders and rely on a soft divider */
+.site-footer {
+  border-top: 0;
+  box-shadow: 0 -1px 0 rgba(0,0,0,.06);            /* light mode */
+}
+:root.dark .site-footer {
+  box-shadow: 0 -1px 0 rgba(255,255,255,.06);      /* dark mode */
+}
+/* Products page title: slimmer weight, better scale */
+.products-title {
+  font-size: clamp(22px, 2.2vw, 28px);
+  font-weight: 600;
+  letter-spacing: .2px;
+  margin: 14px 0 10px;
+}
+
+/* Search bar: sleeker height and spacing */
+.products-toolbar .search input {
+  height: 38px;
+  border-radius: 12px;
+}
+.products-toolbar { margin-bottom: 14px; }
+/* --- MiniCart theme fixes ------------------------------------------ */
+.mini-cart, .miniCart, [data-mini-cart] {
+  --mc-surface: var(--card, #ffffff);
+  --mc-text: var(--text, #1f2328);
+  --mc-border: var(--border, rgba(0,0,0,.12));
+  --mc-btn-bg: #fff;
+  --mc-btn-fg: #1f2328;
+  --mc-btn-border: rgba(0,0,0,.14);
+  --mc-qty-bg: #fff;
+  --mc-qty-fg: #1f2328;
+}
+
+:root.dark .mini-cart,
+:root.dark .miniCart,
+:root.dark [data-mini-cart] {
+  --mc-surface: var(--card, #0f172a);
+  --mc-text: var(--text, #e5e7eb);
+  --mc-border: var(--border, rgba(255,255,255,.12));
+  --mc-btn-bg: #111827;
+  --mc-btn-fg: #e5e7eb;
+  --mc-btn-border: rgba(255,255,255,.14);
+  --mc-qty-bg: #0b1220;
+  --mc-qty-fg: #e5e7eb;
+}
+
+/* Icon buttons, remove black-on-light */
+.mini-cart .icon-btn,
+.miniCart .icon-btn,
+[data-mini-cart] .icon-btn {
+  background: var(--mc-btn-bg);
+  color: var(--mc-btn-fg);
+  border: 1px solid var(--mc-btn-border);
+}
+
+/* Qty control */
+.mini-cart .qty, .miniCart .qty, [data-mini-cart] .qty {
+  background: var(--mc-qty-bg);
+  color: var(--mc-qty-fg);
+  border: 1px solid var(--mc-border);
+}
+.mini-cart .qty button, .miniCart .qty button, [data-mini-cart] .qty button {
+  background: transparent;
+  color: inherit;
+}
