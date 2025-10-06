@@ -17,7 +17,7 @@ lerna-debug.log*
 *.log
 
 # --- env & secrets ---
-**/.env
+**/.envgit
 **/.env.local
 **/.env.*.local
 **/.envrc
