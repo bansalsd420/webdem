@@ -1,239 +1,213 @@
-// mojistore/src/pages/Account/tabs/Profile.jsx
-import { useEffect, useMemo, useState } from 'react';
-import axios from '../../../api/axios';
+// src/pages/Account/tabs/Profile.jsx
+import { useEffect, useMemo, useRef, useState } from "react";
+import api from "../../../api/axios.js";
 
-// lightweight, page-level cache (shared across account tabs)
-const CACHE = (window.__accountCache ||= {});
-const TTL = 2 * 60 * 1000; // 2 minutes
-const KEY = 'account:profile';
-
-function Field({ label, value }) {
+function Stat({ label, value, money = true }) {
+  const text = money ? `₹ ${Number(value || 0).toFixed(2)}` : String(value ?? "-");
   return (
-    <div style={{ display: 'grid', gap: '0.25rem' }}>
-      <div style={{ fontSize: '.85rem', color: 'var(--color-muted)' }}>{label}</div>
-      <div style={{ fontWeight: 600 }}>{value || '—'}</div>
+    <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+      <div className="text-xs opacity-70">{label}</div>
+      <div className="text-lg font-semibold mt-1">{text}</div>
     </div>
   );
 }
 
 export default function Profile() {
-  const [data, setData] = useState(CACHE[KEY]?.value || null);
-  const [err, setErr] = useState(null);
-  const [loading, setLoading] = useState(!CACHE[KEY]);
+  const [loading, setLoading] = useState(true);
+  const [profile, setProfile] = useState(null);
+  const [summary, setSummary] = useState(null);
+  const [error, setError] = useState(null);
 
-  // “request change” UI (kept but still soft-disabled)
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', phone: '', tax_number: '', notes: '' });
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({ name: "", company: "", phone: "" });
+  const cacheRef = useRef({ data: null, ts: 0 }); // simple 120s memo
 
-  async function fetchNow({ force = false } = {}) {
-    const fresh = CACHE[KEY] && Date.now() - CACHE[KEY].t < TTL;
-    if (fresh && !force) return;
+  const TTL = 120 * 1000;
 
-    setLoading(!CACHE[KEY]); // only show loader if nothing cached
-    setErr(null);
-    try {
-      const r = await axios.get('/account/profile', { validateStatus: () => true, withCredentials: true });
-      if (r.status !== 200) throw new Error('server_error');
+  const load = useMemo(
+    () => async (force = false) => {
+      setLoading(true);
+      setError(null);
 
-      const val = r.data || {};
-      CACHE[KEY] = { t: Date.now(), value: val };
-      setData(val);
-      setForm(f => ({
-        ...f,
-        name: val?.name || '',
-        email: val?.email || '',
-        phone: val?.phone || '',
-        tax_number: val?.tax_number || ''
-      }));
-    } catch {
-      setErr('network_or_server');
-    } finally {
-      setLoading(false);
+      const tooOld = Date.now() - cacheRef.current.ts > TTL;
+      if (!force && cacheRef.current.data && !tooOld) {
+        const { profile: p, summary: s } = cacheRef.current.data;
+        setProfile(p); setSummary(s); setLoading(false);
+        return;
+      }
+
+      try {
+        const [pRes, sRes] = await Promise.all([
+          api.get("/account/profile", { withCredentials: true, validateStatus: () => true }),
+          api.get("/account/summary", { withCredentials: true, validateStatus: () => true }),
+        ]);
+
+        if (pRes.status !== 200) throw new Error("profile_unavailable");
+        if (sRes.status !== 200) throw new Error("summary_unavailable");
+
+        const p = pRes.data || null;
+        const s = sRes.data || null;
+
+        setProfile(p);
+        setSummary(s);
+        cacheRef.current = { data: { profile: p, summary: s }, ts: Date.now() };
+      } catch (e) {
+        console.error(e);
+        setError(e?.message || "failed");
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
+
+  useEffect(() => { load(false); }, [load]);
+
+  useEffect(() => {
+    // Prepare form when entering edit mode
+    if (editing && profile) {
+      setForm({
+        name: profile.name || "",
+        company: profile.company || "",
+        phone: profile.phone || "",
+      });
     }
+  }, [editing, profile]);
+
+  const onSave = async () => {
+    try {
+      const payload = {
+        name: form.name?.trim(),
+        company: form.company?.trim(),
+        phone: form.phone?.trim(),
+      };
+      const res = await api.put("/account/profile", payload, {
+        withCredentials: true,
+        validateStatus: () => true,
+      });
+      if (res.status !== 200) throw new Error(res.data?.error || "update_failed");
+      setEditing(false);
+      await load(true);
+    } catch (e) {
+      alert(e?.message || "Update failed");
+    }
+  };
+
+  if (loading) {
+    return <div className="p-6 opacity-80">Loading profile…</div>;
+  }
+  if (error) {
+    return <div className="p-6 text-red-500">Error: {String(error)}</div>;
+  }
+  if (!profile) {
+    return <div className="p-6">No profile found.</div>;
   }
 
-  // initial mount: show cached immediately; revalidate in background if stale
-  useEffect(() => {
-    if (!CACHE[KEY] || Date.now() - CACHE[KEY].t >= TTL) fetchNow({ force: true });
-  }, []);
-
-  // small badge telling where the data came from (if your API sets .source)
-  const sourceBadge = useMemo(() => {
-    const s = (data?.source || '').toLowerCase();
-    if (s === 'connector') return { text: 'Synced with back office', neon: true };
-    if (s === 'local')     return { text: 'Local copy', neon: false };
-    return null;
-  }, [data]);
-
   return (
-    <div className="profile-wrap" style={{ display: 'grid', gap: '1rem' }}>
-      <div className="table-card" style={{ padding: '1rem', display: 'grid', gap: '0.9rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.75rem' }}>
-          <div style={{ fontWeight: 700, letterSpacing: '.2px' }}>Profile</div>
-          <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
-            {sourceBadge && (
-              <span
-                className="pill"
-                style={sourceBadge.neon ? { borderColor: 'var(--color-neon)', color: 'var(--color-neon)' } : {}}
-              >
-                {sourceBadge.text}
-              </span>
-            )}
-            <button className="btn-slim" onClick={() => fetchNow({ force: true })}>Refresh</button>
+    <div className="flex flex-col gap-6">
+      {/* Summary pane */}
+      {summary && (
+        <section className="rounded-2xl p-4 border border-white/10 bg-white/5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-base font-semibold">Account Summary</h3>
+            <button
+              className="text-sm underline opacity-80"
+              onClick={() => load(true)}
+            >
+              Refresh
+            </button>
           </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <Stat label="Advance Balance" value={summary.advance_balance} />
+            <Stat label="Total Sales" value={summary.total_sales} />
+            <Stat label="Opening Balance" value={summary.opening_balance} />
+            <Stat label="Total Invoices" value={summary.total_invoices} money={false} />
+            <Stat label="Balance Due" value={summary.balance_due} />
+          </div>
+        </section>
+      )}
+
+      {/* Profile details / edit card */}
+      <section className="rounded-2xl p-4 border border-white/10 bg-white/5">
+        <div className="flex items-center justify-between">
+          <h3 className="text-base font-semibold">Profile</h3>
+          {!editing ? (
+            <button
+              className="rounded-lg px-3 py-2 border"
+              onClick={() => setEditing(true)}
+            >
+              Request a change
+            </button>
+          ) : null}
         </div>
 
-        {loading && <div style={{ color: 'var(--color-muted)' }}>Loading…</div>}
-        {!loading && err && <div style={{ color: 'var(--color-muted)' }}>Couldn’t load profile.</div>}
-
-        {!loading && !err && (
-          <>
-            <div
-              className="profile-grid"
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(2, minmax(220px, 1fr))',
-                gap: '0.9rem'
-              }}
-            >
-              <Field label="Name"        value={data?.name} />
-              <Field label="Company"     value={data?.company} />
-              <Field label="Email"       value={data?.email} />
-              <Field label="Phone"       value={data?.phone} />
-              <Field label="Tax / VAT"   value={data?.tax_number} />
+        {!editing ? (
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <div className="text-xs opacity-70">Name</div>
+              <div className="mt-1">{profile.name || "-"}</div>
             </div>
+            <div>
+              <div className="text-xs opacity-70">Company</div>
+              <div className="mt-1">{profile.company || "-"}</div>
+            </div>
+            <div>
+              <div className="text-xs opacity-70">Phone</div>
+              <div className="mt-1">{profile.phone || "-"}</div>
+            </div>
+            <div>
+              <div className="text-xs opacity-70">Email</div>
+              <div className="mt-1">{profile.email || "-"}</div>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <label className="grid gap-1">
+              <span className="text-xs opacity-70">Name</span>
+              <input
+                className="rounded-lg px-3 py-2 bg-white/10 border border-white/15"
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                placeholder="Your name"
+              />
+            </label>
+            <label className="grid gap-1">
+              <span className="text-xs opacity-70">Company</span>
+              <input
+                className="rounded-lg px-3 py-2 bg-white/10 border border-white/15"
+                value={form.company}
+                onChange={(e) => setForm((f) => ({ ...f, company: e.target.value }))}
+                placeholder="Company name"
+              />
+            </label>
+            <label className="grid gap-1">
+              <span className="text-xs opacity-70">Phone</span>
+              <input
+                className="rounded-lg px-3 py-2 bg-white/10 border border-white/15"
+                value={form.phone}
+                onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                placeholder="Phone number"
+              />
+            </label>
 
-            {(Number.isFinite(data?.credit_limit) || Number.isFinite(data?.opening_balance)) && (
-              <div
-                className="info-strip"
-                style={{
-                  marginTop: '.25rem',
-                  paddingTop: '.65rem',
-                  borderTop: '1px solid var(--color-border)',
-                  display: 'flex',
-                  gap: '1.25rem',
-                  flexWrap: 'wrap',
-                  color: 'var(--color-muted)'
-                }}
-              >
-                {Number.isFinite(data?.credit_limit) && (
-                  <div><strong>Credit limit:</strong> {data.credit_limit}</div>
-                )}
-                {Number.isFinite(data?.opening_balance) && (
-                  <div><strong>Opening balance:</strong> {data.opening_balance}</div>
-                )}
-              </div>
-            )}
-
-            <div style={{ display: 'flex', gap: '.6rem', marginTop: '.25rem' }}>
+            <div className="sm:col-span-2 flex gap-2 justify-end mt-2">
               <button
-                type="button"
-                className="btn-slim"
-                onClick={() => setShowForm(s => !s)}
-                aria-expanded={showForm ? 'true' : 'false'}
-                aria-controls="profile-request-form"
+                className="rounded-lg px-3 py-2 border"
+                onClick={() => setEditing(false)}
               >
-                {showForm ? 'Close request form' : 'Request a change'}
+                Cancel
+              </button>
+              <button
+                className="rounded-lg px-3 py-2"
+                style={{ background: "var(--color-primary)", color: "var(--color-on-primary)" }}
+                onClick={onSave}
+              >
+                Save changes
               </button>
             </div>
-          </>
+          </div>
         )}
-      </div>
-
-      {showForm && (
-        <div id="profile-request-form" className="table-card" style={{ padding: '1rem', display: 'grid', gap: '.9rem' }}>
-          <div style={{ fontWeight: 700, letterSpacing: '.2px' }}>Request changes</div>
-
-          <div
-            className="form-grid"
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(2, minmax(220px, 1fr))',
-              gap: '0.9rem'
-            }}
-          >
-            <label style={{ display: 'grid', gap: '.35rem' }}>
-              <span style={{ fontSize: '.9rem', color: 'var(--color-muted)' }}>Name</span>
-              <input
-                className="tb-input"
-                value={form.name}
-                onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))}
-                placeholder="e.g., John Appleseed"
-              />
-            </label>
-
-            <label style={{ display: 'grid', gap: '.35rem' }}>
-              <span style={{ fontSize: '.9rem', color: 'var(--color-muted)' }}>Email</span>
-              <input
-                className="tb-input"
-                type="email"
-                value={form.email}
-                onChange={(e) => setForm(f => ({ ...f, email: e.target.value }))}
-                placeholder="you@example.com"
-              />
-            </label>
-
-            <label style={{ display: 'grid', gap: '.35rem' }}>
-              <span style={{ fontSize: '.9rem', color: 'var(--color-muted)' }}>Phone</span>
-              <input
-                className="tb-input"
-                value={form.phone}
-                onChange={(e) => setForm(f => ({ ...f, phone: e.target.value }))}
-                placeholder="+1 555 123 4567"
-              />
-            </label>
-
-            <label style={{ display: 'grid', gap: '.35rem' }}>
-              <span style={{ fontSize: '.9rem', color: 'var(--color-muted)' }}>Tax / VAT</span>
-              <input
-                className="tb-input"
-                value={form.tax_number}
-                onChange={(e) => setForm(f => ({ ...f, tax_number: e.target.value }))}
-                placeholder="Tax / VAT number"
-              />
-            </label>
-          </div>
-
-          <label style={{ display: 'grid', gap: '.35rem' }}>
-            <span style={{ fontSize: '.9rem', color: 'var(--color-muted)' }}>Additional notes (optional)</span>
-            <textarea
-              className="tb-input"
-              rows={4}
-              value={form.notes}
-              onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))}
-              placeholder="Tell us what needs to change and why…"
-              style={{ paddingTop: '.6rem', paddingBottom: '.6rem' }}
-            />
-          </label>
-
-          <div style={{ display: 'flex', gap: '.6rem' }}>
-            <button
-              type="button"
-              className="btn-slim"
-              onClick={() => {
-                setForm({
-                  name: data?.name || '',
-                  email: data?.email || '',
-                  phone: data?.phone || '',
-                  tax_number: data?.tax_number || '',
-                  notes: ''
-                });
-                setShowForm(false);
-              }}
-            >
-              Cancel
-            </button>
-
-            <button type="button" className="btn-slim" disabled title="Disabled for now — wiring pending">
-              Submit request
-            </button>
-          </div>
-
-          <div style={{ color: 'var(--color-muted)', fontSize: '.9rem' }}>
-            Submissions are disabled while we finish wiring this to the back office.
-          </div>
-        </div>
-      )}
+      </section>
     </div>
   );
 }

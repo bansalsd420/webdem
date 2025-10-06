@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom'
+
+import { getLocations, getLocationId, setLocationId } from '../../utils/locations';;
 import { ShoppingCart, Heart, Sun, Moon, MapPin, Search, X, LogIn, Menu } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../../api/axios.js';
@@ -10,48 +12,9 @@ import useDebouncedValue from '../../hooks/useDebouncedValue.js';
 import '../../styles/navbar.css';
 import { useSideNav } from '../../layouts/SideNavContext.jsx';
 
+
 const suggestionsBox = { hidden: { opacity: 0, y: -6 }, visible: { opacity: 1, y: 0 } };
 
-/** helpers: read/write selected location consistently */
-function getLocationParam(search) {
-  try {
-    const sp = new URLSearchParams(search || '');
-    const raw = sp.get('location');
-    if (raw === '' || raw == null) return null;
-    const n = Number(raw);
-    return Number.isFinite(n) ? n : null;
-  } catch { return null; }
-}
-function readStoredLocationId() {
-  try {
-    const keys = ['ms_location_id', 'locationId'];
-    for (const k of keys) {
-      const raw = localStorage.getItem(k);
-      if (raw === 'null' || raw === 'undefined' || raw == null) continue;
-      const n = Number(raw);
-      if (Number.isFinite(n)) return n;
-      if (raw === '') return null; // explicit "All"
-    }
-  } catch {}
-  return null;
-}
-function writeStoredLocation(id, name) {
-  try {
-    const val = id == null ? '' : String(id);
-    localStorage.setItem('ms_location_id', val);
-    localStorage.setItem('locationId', val);
-    if (name != null) {
-      localStorage.setItem('ms_location_name', name);
-    }
-  } catch {}
-}
-function broadcastLocation(id, name) {
-  const detail = { id: id ?? null, name: name ?? '' };
-  try {
-    window.dispatchEvent(new CustomEvent('moji:location-change', { detail }));
-    window.dispatchEvent(new CustomEvent('location:changed', { detail }));
-  } catch {}
-}
 
 export default function Navbar() {
   const { toggle, closeSideNav } = useSideNav();
@@ -171,73 +134,31 @@ export default function Navbar() {
   }, []);
   useEffect(() => { setOpenSug(false); setLocOpen(false); setAuthOpen(false); }, [route.pathname, route.search]);
 
-  // ---------- Location picker ----------
+
+
+  // ---------- Location picker (no "All") ----------
+  // ---------- Location picker (read from central store; no “All”) ----------
   const [locOpen, setLocOpen] = useState(false);
-  const [locations, setLocations] = useState([]);
-  // initialize from URL (?location=) first, then storage
-  const initialLocId = (() => {
-    const fromUrl = getLocationParam(route.search);
-    if (fromUrl !== null) return fromUrl;
-    const stored = readStoredLocationId();
-    return stored;
-  })();
-  const [selectedLocId, setSelectedLocId] = useState(initialLocId);
-  const [selectedLocName, setSelectedLocName] = useState('All locations');
+  const [locations, setLocations] = useState(() => getLocations());
+  const [selectedLocId, setSelectedLocId] = useState(() => getLocationId());
+  const selectedLocName =
+    (locations.find((l) => Number(l.id) === Number(selectedLocId))?.name) || '';
 
-  // Load location list and sync selected name; react when query param changes
+  // stay in sync with store updates (emitted by bootstrapLocations & setLocationId)
   useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const { data } = await api.get('/locations', { withCredentials: true, validateStatus: () => true });
-        if (!alive) return;
-        const listRaw = Array.isArray(data) ? data : [];
-        // ensure "All locations" is available as first choice (id=null)
-        const hasAll = listRaw.some(l => l && (l.id == null));
-        const list = hasAll ? listRaw : [{ id: null, name: 'All locations' }, ...listRaw];
-        setLocations(list);
-
-        // Re-read current desired id (prefer URL)
-        const urlId = getLocationParam(route.search);
-        const wantId = urlId !== null ? urlId : selectedLocId;
-
-        const match =
-          list.find((l) => (wantId == null && l.id == null) || l.id === wantId) || list[0];
-        setSelectedLocId(match?.id ?? null);
-        setSelectedLocName(match?.name || 'All locations');
-
-        // Normalize storage + broadcast once so listeners update
-        writeStoredLocation(match?.id ?? null, match?.name || 'All locations');
-        broadcastLocation(match?.id ?? null, match?.name || 'All locations');
-      } catch {
-        if (!alive) return;
-        const fallback = [{ id: null, name: 'All locations' }];
-        setLocations(fallback);
-        setSelectedLocId(null);
-        setSelectedLocName('All locations');
-        writeStoredLocation(null, 'All locations');
-        broadcastLocation(null, 'All locations');
-      }
-    })();
-    return () => { alive = false; };
-    // include route.search so changing ?location= syncs the picker
-  }, [route.search]); // eslint-disable-line react-hooks/exhaustive-deps
+    const onChange = () => {
+      setLocations(getLocations());
+      setSelectedLocId(getLocationId());
+    };
+    window.addEventListener('location:changed', onChange);
+    // pick up the first load too
+    onChange();
+    return () => window.removeEventListener('location:changed', onChange);
+  }, []);
 
   const pickLocation = (l) => {
-    // persist to both keys for compatibility
-    writeStoredLocation(l.id ?? null, l.name);
-    setSelectedLocId(l.id ?? null);
-    setSelectedLocName(l.name);
+    setLocationId(l.id);       // persists + broadcasts + updates everyone
     setLocOpen(false);
-
-    // Update URL ?location= (preserve other params)
-    const sp = new URLSearchParams(route.search || '');
-    if (l.id == null) sp.delete('location');
-    else sp.set('location', String(l.id));
-    navigate({ pathname: route.pathname, search: `?${sp.toString()}` }, { replace: true });
-
-    // Notify listeners (Products page, PDP, etc.)
-    broadcastLocation(l.id ?? null, l.name);
   };
 
   // ---------- Auth menu ----------
@@ -286,10 +207,13 @@ export default function Navbar() {
           {locOpen && (
             <div className="menu">
               <div className="menu-list">
+                {locations.length === 0 && (
+                  <div className="menu-item" aria-disabled="true">Loading…</div>
+                )}
                 {locations.map((l) => (
                   <button key={String(l.id)} className="menu-item" onClick={() => pickLocation(l)}>
                     <span>{l.name}</span>
-                    {((selectedLocId == null && l.id == null) || l.id === selectedLocId) && <span>✓</span>}
+                    {l.id === selectedLocId && <span>✓</span>}
                   </button>
                 ))}
               </div>
@@ -363,8 +287,9 @@ export default function Navbar() {
         {/* Auth button: render nothing until we know session state */}
         {authKnown && !(user || sessionUser) && (
           <div className="relative" ref={authRef}>
-            <button className="pill" onClick={() => setAuthOpen(v => !v)} aria-haspopup="menu" aria-expanded={authOpen ? 'true' : 'false'}>
-              <LogIn size={18} /> <span className="hidden sm:inline">Login</span>
+            <button className="pill" onClick={() => setLocOpen((v) => !v)}>
+              <MapPin size={18} />
+              <span>{selectedLocName || 'Select location'}</span>
             </button>
             {authOpen && (
               <div className="menu">

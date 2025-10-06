@@ -5,22 +5,8 @@ import api from '../../api/axios.js';
 import ProductCard from '../../components/ProductCard/ProductCard.jsx';
 import '../../styles/filters.css';
 import useDebouncedValue from "../../hooks/useDebouncedValue.js";
+import { withLocation, getLocationId } from "../../utils/locations";
 
-/** Resolve locationId from URL (?location=) first, then localStorage (ms_location_id/locationId) */
-function readSelectedLocationId(spLike) {
-  try {
-    const get = (k) => (typeof spLike?.get === 'function' ? spLike.get(k) : null);
-    const fromUrl = Number(get?.('location'));
-    if (Number.isFinite(fromUrl)) return fromUrl;
-  } catch {}
-  const keys = ['ms_location_id', 'locationId'];
-  for (const k of keys) {
-    const raw = localStorage.getItem(k);
-    const n = Number(raw);
-    if (Number.isFinite(n)) return n;
-  }
-  return undefined;
-}
 
 const toUSD = (v) => {
   const n = Number(v);
@@ -92,12 +78,12 @@ export default function Products() {
 
   // ---------- location awareness ----------
   const [locVersion, setLocVersion] = useState(0);
-  const lastLocRef = useRef(readSelectedLocationId(sp));
+  const lastLocRef = useRef(getLocationId());
 
   // fire when Navbar changes the location (support both event names)
   useEffect(() => {
     const bumpIfChanged = () => {
-      const cur = readSelectedLocationId(sp);
+      const cur = getLocationId();
       if (cur !== lastLocRef.current) {
         lastLocRef.current = cur;
         setLocVersion((v) => v + 1);
@@ -105,19 +91,17 @@ export default function Products() {
     };
     const onMoji = () => bumpIfChanged();
     const onLegacy = () => bumpIfChanged();
-    const onStorage = (e) => {
-      if (e.key === 'ms_location_id' || e.key === 'locationId') bumpIfChanged();
-    };
+
     const onFocus = () => bumpIfChanged();
 
     window.addEventListener('moji:location-change', onMoji);
     window.addEventListener('location:changed', onLegacy);
-    window.addEventListener('storage', onStorage);
+
     window.addEventListener('focus', onFocus);
     return () => {
       window.removeEventListener('moji:location-change', onMoji);
       window.removeEventListener('location:changed', onLegacy);
-      window.removeEventListener('storage', onStorage);
+
       window.removeEventListener('focus', onFocus);
     };
   }, [spStr]);
@@ -168,16 +152,15 @@ export default function Products() {
     (async () => {
       setLoading(true);
       try {
-        const params = {
+        const params = withLocation({
           q: dq || '',
           category: urlFilters.category,
           subcategory: urlFilters.subcategory,
           brand: urlFilters.brand,
           page: urlFilters.page,
           limit: urlFilters.limit,
-          locationId: readSelectedLocationId(sp),
           inStock: urlFilters.instock ? 1 : undefined,
-        };
+        });
         const resp = await api.get('/products', { params, withCredentials: true, signal: ctrl.signal });
         const data = resp.data;
 

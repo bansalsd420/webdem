@@ -20,7 +20,9 @@ const OAUTH = {
 /* ---------- utils ---------- */
 function joinUrl(...parts) {
   return parts
-    .map((p, i) => (i === 0 ? String(p || '').replace(/\/+$/, '') : String(p || '').replace(/^\/+|\/+$/g, '')))
+    .map((p, i) =>
+      i === 0 ? String(p || '').replace(/\/+$/, '') : String(p || '').replace(/^\/+|\/+$/g, '')
+    )
     .filter(Boolean)
     .join('/');
 }
@@ -56,7 +58,10 @@ async function fetchAccessToken() {
     if (r.ok) {
       const j = await r.json();
       const ttl = Number(j.expires_in || 3600);
-      tokenCache = { access_token: j.access_token, expires_at: Date.now() + Math.max(30_000, (ttl - 15) * 1000) };
+      tokenCache = {
+        access_token: j.access_token,
+        expires_at: Date.now() + Math.max(30_000, (ttl - 15) * 1000),
+      };
       return tokenCache.access_token;
     }
     last = { status: r.status, body: await safeJson(r) };
@@ -80,8 +85,9 @@ async function connectorGet(path, { query } = {}) {
   if (query && typeof query === 'object') {
     for (const [k, v] of Object.entries(query)) {
       if (v === undefined || v === null || v === '') continue;
-      Array.isArray(v) ? v.forEach(val => url.searchParams.append(k, String(val)))
-                       : url.searchParams.set(k, String(v));
+      Array.isArray(v)
+        ? v.forEach((val) => url.searchParams.append(k, String(val)))
+        : url.searchParams.set(k, String(v));
     }
   }
   let token = await getAccessToken();
@@ -125,10 +131,10 @@ function normalizeLocation(row) {
     null;
   const name = String(
     row.name ??
-    row.location_name ??
-    row.display_name ??
-    row.location?.name ??
-    ''
+      row.location_name ??
+      row.display_name ??
+      row.location?.name ??
+      ''
   ).trim();
   if (id == null || !name) return null;
   return { id, name };
@@ -157,15 +163,12 @@ router.get('/', async (_req, res) => {
     }
     out.sort((a, b) => a.name.localeCompare(b.name));
 
-    // Prepend the virtual "All locations" entry
-    const withAll = [{ id: null, name: 'All locations' }, ...out];
-
     res.setHeader('Cache-Control', 'public, max-age=300'); // 5 min
-    return res.json(withAll);
+    return res.json(out); // <<— ONLY real locations (no "All")
   } catch (e) {
     console.error('locations (connector) error', e?.status || '', e?.body || e);
-    // Still provide the virtual default so UI can function
-    return res.json([{ id: null, name: 'All locations' }]);
+    // Return empty so the client can disable picker / show an error state.
+    return res.status(502).json([]);
   }
 });
 

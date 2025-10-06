@@ -12,20 +12,8 @@ import { useAuth } from "../../state/auth.jsx";
 import ProductCard from "../../components/ProductCard/ProductCard.jsx";
 import SmartImage from "../../components/SmartImage.jsx";
 import "../../styles/product-detail.css";
+import { getLocationId, withLocation } from "../../utils/locations";
 
-function readSelectedLocationIdFromEverywhere(loc) {
-  // 1) prefer Link state (instant from Products)
-  const fromState = loc?.state?.locationId;
-  if (Number.isFinite(Number(fromState))) return String(Number(fromState));
-  // 2) ms_location_id is the canonical key Navbar persists
-  const ms = localStorage.getItem("ms_location_id");
-  if (Number.isFinite(Number(ms))) return String(Number(ms));
-  // 3) fallback to legacy locationId if present
-  const legacy = localStorage.getItem("locationId");
-  if (Number.isFinite(Number(legacy))) return String(Number(legacy));
-  // 4) final fallback: empty (backend may default or reject; our Navbar should set it)
-  return "";
-}
 
 export default function ProductDetail() {
   const { id } = useParams();
@@ -41,15 +29,15 @@ export default function ProductDetail() {
   const [related, setRelated] = useState([]);
   const [variantId, setVariantId] = useState(quick?.variants?.[0]?.id ?? null);
 
-  // location-aware: initialize from state/storage (ms_location_id)
-  const [locationId, setLocationId] = useState(() => readSelectedLocationIdFromEverywhere(loc));
-  const refetchTimer = useRef(null);
 
+  // Location-aware: centralized selection (no "All" sentinel anymore)
+  const [locationId, setLocationId] = useState(() => getLocationId());
+  const refetchTimer = useRef(null);
   // qty defaults to 0
   const [qty, setQty] = useState(0);
   const [rowQty, setRowQty] = useState({});
   const [loadingDetail, setLoadingDetail] = useState(!quick);           // detail fetch
-  const [loadingVariants, setLoadingVariants] = useState(true);         // table shimmer trigger
+  const [loadingVariants, setLoadingVariants] = useState(!quick);       // table shimmer trigger      // table shimmer trigger
   const [addedTick, setAddedTick] = useState(false);
   const [adding, setAdding] = useState(false);
   const [rowAdding, setRowAdding] = useState({});
@@ -59,88 +47,58 @@ export default function ProductDetail() {
 
   // Keep local locationId in sync with global changes
   useEffect(() => {
-    const bump = () => {
-      const next = readSelectedLocationIdFromEverywhere(loc);
-      setLocationId(next);
-    };
-    const onMoji = () => bump();
-    const onLegacy = () => bump();
-    const onStorage = (e) => {
-      if (e.key === "ms_location_id" || e.key === "locationId") bump();
-    };
-    const onFocus = () => bump();
-
-    window.addEventListener("moji:location-change", onMoji);
-    window.addEventListener("location:changed", onLegacy);
-    window.addEventListener("storage", onStorage);
-    window.addEventListener("focus", onFocus);
-
-    // also re-read when route state changes (rare but cheap)
-    bump();
-
+    const sync = () => setLocationId(getLocationId());
+    window.addEventListener("location:changed", sync);
+    // pick up initial value (e.g., after boot)
+    sync();
     return () => {
-      window.removeEventListener("moji:location-change", onMoji);
-      window.removeEventListener("location:changed", onLegacy);
-      window.removeEventListener("storage", onStorage);
-      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("location:changed", sync);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loc.key]);
+  }, []);
 
   // Fetch product detail (debounced on location change)
   useEffect(() => {
+    let alive = true;
     if (refetchTimer.current) clearTimeout(refetchTimer.current);
-    refetchTimer.current = setTimeout(() => {
-      let alive = true;
-      (async () => {
-        setLoadingDetail(!data);          // if we had quick data, don't show global loader
-        setLoadingVariants(true);
-        try {
-          const nLoc = Number(locationId);
-          const params = Number.isFinite(nLoc) ? { locationId: nLoc } : undefined;
-
-          const { data: full } = await axios.get(`/products/${id}`, {
-            withCredentials: true,
-            params,
-          });
-          if (!alive) return;
-          setData(full);
-
-          // reset variant pick & row qty for fresh data
-          const firstId = full?.variants?.[0]?.id ?? null;
-          setVariantId(firstId);
-          const init = {};
-          (full?.variants || []).forEach((v) => (init[v.id] = 0));
-          setRowQty(init);
-          setQty(0);
-        } catch (e) {
-          console.error(e);
-          if (alive) setData(null);
-        } finally {
-          if (alive) {
-            setLoadingDetail(false);
-            setLoadingVariants(false);
-          }
+    setLoadingDetail(true);
+    setLoadingVariants(true);
+    refetchTimer.current = setTimeout(async () => {
+      try {
+        if (!alive) return;
+        const { data: full } = await axios.get(
+          `/products/${id}`,
+          { withCredentials: true, params: withLocation({}) }
+        );
+        if (!alive) return;
+        setData(full);                            // ✅ correct setter
+        // ensure a valid default variant is selected
+        const firstVar = Array.isArray(full?.variants) ? (full.variants[0]?.id ?? null) : null;
+        setVariantId((prev) =>
+          full?.variants?.some(v => v.id === prev) ? prev : firstVar
+        );
+        setLoadingDetail(false);
+        setLoadingVariants(false);
+      } catch {
+        if (alive) {
+          setData(null);                         // ✅ correct setter
+          setLoadingDetail(false);
+          setLoadingVariants(false);
         }
-      })();
-      return () => (alive = false);
-    }, 200); // debounce
-    return () => clearTimeout(refetchTimer.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      }
+    }, 150);
+    return () => { alive = false; clearTimeout(refetchTimer.current); };
   }, [id, locationId]);
+
 
   // Fetch related (location-aware)
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const nLoc = Number(locationId);
-        const params = Number.isFinite(nLoc) ? { locationId: nLoc } : undefined;
-
-        const { data } = await axios.get(`/products/${id}/related`, {
-          withCredentials: true,
-          params,
-        });
+        const { data } = await axios.get(
+          `/products/${id}/related`,
+          { withCredentials: true, params: withLocation({}) }
+        );
         if (alive) setRelated(Array.isArray(data) ? data : []);
       } catch {
         if (alive) setRelated([]);
@@ -167,7 +125,34 @@ export default function ProductDetail() {
   );
 
   // Single-card stock logic
-  const singleInStock = (activeVariant?.in_stock ?? data?.in_stock) !== false;
+  // Location-aware stock (tri-state):
+  // - null   → unknown (don't claim "In stock" yet)
+  // - true   → in stock
+  // - false  → out of stock
+  const anyInStockHere = useMemo(() => {
+    if (realVariants.length) {
+      // if any row explicitly says out-of-stock === false, otherwise unknown rows are ignored
+      let sawKnown = false;
+      let any = false;
+      for (const v of realVariants) {
+        if (v.in_stock === true) { any = true; sawKnown = true; break; }
+        if (v.in_stock === false) { sawKnown = true; }
+      }
+      return sawKnown ? any : null;
+    }
+    if (data?.in_stock === true) return true;
+    if (data?.in_stock === false) return false;
+    return null;
+  }, [realVariants, data]);
+
+  const singleInStock = useMemo(() => {
+    if (showTable) return anyInStockHere ?? false;
+    if (activeVariant?.in_stock === true) return true;
+    if (activeVariant?.in_stock === false) return false;
+    if (data?.in_stock === true) return true;
+    if (data?.in_stock === false) return false;
+    return false; // unknown -> don't claim true
+  }, [showTable, anyInStockHere, activeVariant, data]);
 
   // Price view (only when logged in)
   const priceDisplay = useMemo(() => {
@@ -279,7 +264,7 @@ export default function ProductDetail() {
         if (!arr.includes(data.id)) arr.push(data.id);
         localStorage.setItem(key, JSON.stringify(arr));
         setWishMsg("Added to wishlist");
-      } catch {}
+      } catch { }
     } finally {
       setTimeout(() => setWishMsg(""), 1200);
     }
@@ -296,8 +281,26 @@ export default function ProductDetail() {
         background-size: 200% 100%;
       }
       .dark .pdp-shimmer{
+      
         background: linear-gradient(90deg, rgba(255,255,255,0.06) 25%, rgba(255,255,255,0.12) 37%, rgba(255,255,255,0.06) 63%);
       }
+        
+         /* ---------- PDP table tweaks ---------- */
+      .pdp-vars-wrap{ border:1px solid var(--border-subtle); border-radius:12px; padding:6px 8px; }
+      .pdp-vars{ width:100%; border-collapse:separate; border-spacing:0 6px; }
+      .pdp-vars th{ text-align:left; color:var(--text-muted); font-weight:600; padding:.5rem .75rem; white-space:nowrap; }
+      .pdp-vars td{ padding:.6rem .75rem; vertical-align:middle; }
+      .pdp-vars th.col-price, .pdp-vars td.num{ text-align:right; }
+      .pdp-vars th.col-stock, .pdp-vars td.text-center{ text-align:center; }
+      .pdp-vars .badge{ white-space:nowrap; }
+      .pdp-vars .row-actions{ display:flex; gap:.6rem; align-items:center; }
+      .pdp-vars .qty-box.sm{ height:36px; }
+      .pdp-vars .qty-input{ width:46px; text-align:center; }
+      .pdp-vars .variant-pill{
+        display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+        overflow:hidden; line-height:1.2;
+      }
+      
     `}</style>
   );
 
@@ -319,7 +322,7 @@ export default function ProductDetail() {
                 fit="contain"
                 className="w-full h-auto"
                 loading="eager"
-                fetchpriority="high"
+                fetchPriority="high"
                 decoding="async"
                 sizes="(min-width:1024px) 33vw, 90vw"
                 srcSet={
@@ -352,9 +355,13 @@ export default function ProductDetail() {
             <h1 className="pdp-title">{(data || quick)?.name}</h1>
 
             <div className="pdp-meta-left" style={{ marginTop: 20 }}>
-              <div className={`pill pill-lg ${(data || quick)?.in_stock ? "pill--ok" : "pill--bad"}`}>
-                {(data || quick)?.in_stock ? "In stock" : "Out of stock"}
-              </div>
+              {anyInStockHere === null ? (
+                <div className="pill pill-lg pill--muted">Checking stock…</div>
+              ) : anyInStockHere ? (
+                <div className="pill pill-lg pill--ok">In stock</div>
+              ) : (
+                <div className="pill pill-lg pill--bad">Out of stock</div>
+              )}
 
               {(data || quick)?.sku && (
                 <div className="meta-line">
@@ -405,194 +412,222 @@ export default function ProductDetail() {
                   </button>
                 </div>
 
-                <button
-                  disabled={qty <= 0 || !variantId || !singleInStock || adding}
-                  onClick={() => addToCart(variantId, qty, { type: "main" })}
-                  className="primary-cta"
-                  title={qty <= 0 ? "Please increase the quantity to add to cart" : ""}
+                <span
+                  className="disabled-tip tt"
+                  data-tt={
+                    !singleInStock
+                      ? "Can't add"
+                      : (qty <= 0
+                        ? "Increase quantity"
+                        : (!variantId ? "Select a variation" : ""))
+                  }
                 >
-                  {adding ? (
-                    <span className="btn-spin"><span className="spinner" /> Adding…</span>
-                  ) : (
-                    "Add to Cart"
-                  )}
-                </button>
+                  <button
+                    disabled={qty <= 0 || !variantId || !singleInStock || adding}
+                    onClick={() => addToCart(variantId, qty, { type: "main" })}
+                    className="primary-cta"
+                  >
+                    {adding ? (
+                      <span className="btn-spin"><span className="spinner" /> Adding…</span>
+                    ) : (
+                      "Add to Cart"
+                    )}
+                  </button>
+                </span>
 
                 {addedTick && <div className="added-toast">Added to cart</div>}
               </div>
             )}
 
-           {/* Variations — only show when a table is (or will be) rendered */}
+            {/* Variations — only show when a table is (or will be) rendered */}
             {(showTable || (loadingVariants && Array.isArray(data?.variants) && data.variants.length >= 2)) && (
               <div className="mt-6">
                 <div className="text-sm font-semibold mb-2">All variations</div>
 
-              {/* Shimmer skeleton while variants load */}
-              {loadingVariants && (
-                <div className="pdp-vars-wrap">
-                  <table className="pdp-vars">
-                    <colgroup>
-                      <col />
-                      <col style={{ width: 120 }} />
-                      <col style={{ width: 110 }} />
-                      <col style={{ width: 300 }} />
-                    </colgroup>
-                    <thead>
-                      <tr>
-                        <th>Variation</th>
-                        <th className="col-price">Price</th>
-                        <th className="col-stock">Stock</th>
-                        <th className="col-actions">Add to cart</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Array.from({ length: 4 }).map((_, i) => (
-                        <tr key={i}>
-                          <td><div className="pdp-shimmer h-6 rounded" /></td>
-                          <td><div className="pdp-shimmer h-6 rounded w-20 ml-auto" /></td>
-                          <td className="text-center"><div className="pdp-shimmer h-6 rounded inline-block w-20" /></td>
-                          <td>
-                            <div className="flex items-center gap-3 justify-end">
-                              <div className="pdp-shimmer h-9 w-28 rounded" />
-                              <div className="pdp-shimmer h-9 w-28 rounded" />
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-              {/* Real table (only when 2+ real variants) */}
-              {!loadingVariants && showTable && (
-                <>
+                {/* Shimmer skeleton while variants load */}
+                {loadingVariants && (
                   <div className="pdp-vars-wrap">
-                    <table className="pdp-vars" style={{ tableLayout: "fixed" }}>
+                    <table className="pdp-vars">
                       <colgroup>
-                        <col />
-                        <col style={{ width: 120 }} />
-                        <col style={{ width: 110 }} />
-                        <col style={{ width: 300 }} />
+                        {[
+                          undefined,                    // Variation
+                          { width: 120 },               // Price
+                          { width: 110 },               // Stock
+                          { width: 280 },               // Actions
+                        ].map((style, i) => <col key={i} style={style} />)}
                       </colgroup>
                       <thead>
                         <tr>
-                          <th scope="col">Variation</th>
-                          <th scope="col" className="col-price">Price</th>
-                          <th scope="col" className="col-stock">Stock</th>
-                          <th scope="col" className="col-actions">Add to cart</th>
+                          <th>Variation</th>
+                          <th className="col-price">Price</th>
+                          <th className="col-stock">Stock</th>
+                          <th className="col-actions">Add to cart</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {realVariants.map((v) => {
-                          const showPrice = user && v.price != null;
-                          const val = Math.max(0, Math.floor(rowQty[v.id] ?? 0));
-                          const rowDisabled = v.in_stock === false;
-
-                          return (
-                            <tr key={v.id} className={`${rowDisabled ? "is-disabled" : ""}`}>
-                              <td>
-                                <span className="variant-pill" title={v.label || v.name || ""}>
-                                  {v.label || v.name || "—"}
-                                </span>
-                              </td>
-
-                              <td className="num">
-                                {showPrice ? `$${Number(v.price).toFixed(2)}` : <span className="muted">Login to see</span>}
-                              </td>
-
-                              <td className="text-center">
-                                <span className={`badge ${rowDisabled ? "bad" : "ok"}`}>
-                                  {rowDisabled ? "Out of stock" : "In stock"}
-                                </span>
-                              </td>
-
-                              <td>
-                                <div className="row-actions justify-end">
-                                  <div className="qty-box sm">
-                                    <button
-                                      className="qty-btn"
-                                      onClick={() =>
-                                        setRowQty((prev) => ({ ...prev, [v.id]: Math.max(0, (prev[v.id] || 0) - 1) }))
-                                      }
-                                      aria-label="Decrease"
-                                      disabled={val <= 0}
-                                    >
-                                      −
-                                    </button>
-                                    <input
-                                      className="qty-input"
-                                      value={val}
-                                      onChange={(e) =>
-                                        setRowQty((prev) => ({
-                                          ...prev,
-                                          [v.id]: Math.max(0, Math.floor(Number(e.target.value) || 0)),
-                                        }))
-                                      }
-                                    />
-                                    <button
-                                      className="qty-btn"
-                                      onClick={() =>
-                                        setRowQty((prev) => ({ ...prev, [v.id]: Math.floor((prev[v.id] || 0) + 1) }))
-                                      }
-                                      aria-label="Increase"
-                                      disabled={rowDisabled}
-                                    >
-                                      +
-                                    </button>
-                                  </div>
-
-                                  <button
-                                    disabled={val <= 0 || rowDisabled || (!!user && !showPrice) || rowAdding[v.id]}
-                                    onClick={() => addToCart(v.id, val, { type: "row", id: v.id })}
-                                    className="primary-cta sm"
-                                    title={val <= 0 ? "Please increase the quantity to add to cart" : ""}
-                                  >
-                                    {rowAdding[v.id] ? (
-                                      <span className="btn-spin"><span className="spinner" /> Adding…</span>
-                                    ) : (
-                                      "Add To Cart"
-                                    )}
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
+                        {Array.from({ length: 4 }).map((_, i) => (
+                          <tr key={i}>
+                            <td><div className="pdp-shimmer h-6 rounded" /></td>
+                            <td><div className="pdp-shimmer h-6 rounded w-20 ml-auto" /></td>
+                            <td className="text-center"><div className="pdp-shimmer h-6 rounded inline-block w-20" /></td>
+                            <td>
+                              <div className="flex items-center gap-3 justify-end">
+                                <div className="pdp-shimmer h-9 w-28 rounded" />
+                                <div className="pdp-shimmer h-9 w-28 rounded" />
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>
+                )}
 
-                  {/* Add All — footer, prominent */}
-                  <div className="mt-4 flex justify-end">
-                    <button
-                      className="primary-cta"
-                      onClick={addAll}
-                      disabled={!anyRowQty || addingAll}
-                      title={!anyRowQty ? "Select quantities to add" : ""}
-                    >
-                      {addingAll ? "Adding…" : "Add All to Cart"}
-                    </button>
-                  </div>
+                {/* Real table (only when 2+ real variants) */}
+                {!loadingVariants && showTable && (
+                  <>
+                    <div className="pdp-vars-wrap">
+                      <table className="pdp-vars" style={{ tableLayout: "fixed" }}>
+                        <colgroup>
+                          {[
+                            undefined,                    // Variation
+                            { width: 120 },               // Price
+                            { width: 110 },               // Stock
+                            { width: 280 },               // Actions
+                          ].map((style, i) => <col key={i} style={style} />)}
+                        </colgroup>
+                        <thead>
+                          <tr>
+                            <th scope="col">Variation</th>
+                            <th scope="col" className="col-price">Price</th>
+                            <th scope="col" className="col-stock">Stock</th>
+                            <th scope="col" className="col-actions">Add to cart</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {realVariants.map((v) => {
+                            const showPrice = !!user && v.price != null;
+                            const rowDisabled = v?.in_stock === false;
+                            const val = Math.max(0, Math.floor(rowQty?.[v.id] ?? 0));
+                            const addDisabled = (val <= 0) || rowDisabled || (!!user && !showPrice) || !!rowAdding?.[v.id];
 
-                  {addAllToast && (
-                    <div className="mt-3 flex justify-end">
-                      <div className="rounded-md bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 px-3 py-2 text-sm shadow-sm">
-                        {addAllToast}
-                      </div>
+                            return (
+                              <tr key={v.id} className={`${rowDisabled ? "is-disabled" : ""}`}>
+                                <td>
+                                  <span className="variant-pill" title={v.label || v.name || ""}>
+                                    {v.label || v.name || "—"}
+                                  </span>
+                                </td>
+
+                                <td className="num">
+                                  {showPrice ? `$${Number(v.price).toFixed(2)}` : <span className="muted">Login to see</span>}
+                                </td>
+
+                                <td className="text-center">
+                                  <span className={`badge ${rowDisabled ? "bad" : "ok"}`} style={{ whiteSpace: "nowrap" }}>
+                                    {rowDisabled ? "Out of stock" : "In stock"}
+                                  </span>
+                                </td>
+                                <td>
+                                  <div className="row-actions justify-end">
+                                    <div className="qty-box sm">
+                                      <button
+                                        className="qty-btn"
+                                        onClick={() =>
+                                          setRowQty((prev) => ({ ...prev, [v.id]: Math.max(0, (prev[v.id] || 0) - 1) }))
+                                        }
+                                        aria-label="Decrease"
+                                        disabled={val <= 0}
+                                      >
+                                        −
+                                      </button>
+                                      <input
+                                        className="qty-input"
+                                        value={val}
+                                        onChange={(e) =>
+                                          setRowQty((prev) => ({
+                                            ...prev,
+                                            [v.id]: Math.max(0, Math.floor(Number(e.target.value) || 0)),
+                                          }))
+                                        }
+                                      />
+                                      <button
+                                        className="qty-btn"
+                                        onClick={() =>
+                                          setRowQty((prev) => ({ ...prev, [v.id]: Math.floor((prev[v.id] || 0) + 1) }))
+                                        }
+                                        aria-label="Increase"
+                                        /* allow increment even when OOS; add-to-cart stays disabled */
+                                        disabled={false}
+                                      >
+                                        +
+                                      </button>
+                                    </div>
+
+                                    {/* Wrap the disabled button so title tooltip still shows */}
+                                    <span
+                                      className="disabled-tip tt"
+                                      data-tt={
+                                        addDisabled
+                                          ? (rowDisabled
+                                            ? "Out of stock"
+                                            : (val <= 0
+                                              ? "Increase quantity"
+                                              : (!!user && !showPrice ? "Login to see prices" : "")))
+                                          : null
+                                      }
+                                    >
+                                      <button
+                                        disabled={addDisabled}
+                                        onClick={() => addToCart(v.id, val, { type: "row", id: v.id })}
+                                        className="primary-cta sm"
+                                      >
+                                        {rowAdding?.[v.id] ? (
+                                          <span className="btn-spin"><span className="spinner" /> Adding…</span>
+                                        ) : (
+                                          "Add To Cart"
+                                        )}
+                                      </button>
+                                    </span>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
-                  )}
-                </>
-              )}
-            </div>
-             )}
+
+                    {/* Add All — footer, prominent */}
+                    <div className="mt-4 flex justify-end">
+                      <button
+                        className="primary-cta"
+                        onClick={addAll}
+                        disabled={!anyRowQty || addingAll}
+                        title={!anyRowQty ? "Select quantities to add" : ""}
+                      >
+                        {addingAll ? "Adding…" : "Add All to Cart"}
+                      </button>
+                    </div>
+
+                    {addAllToast && (
+                      <div className="mt-3 flex justify-end">
+                        <div className="rounded-md bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 px-3 py-2 text-sm shadow-sm">
+                          {addAllToast}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </div>
-          
-        </div>
-      </section>
+
+        </div >
+      </section >
 
       {/* Description — theme-aware, pretty */}
-      <section className="mt-2">
+      < section className="mt-2" >
         <h3 className="text-lg font-semibold mb-2">Description</h3>
         <div
           className="rounded-xl shadow-sm px-5 py-5 text-sm"
@@ -605,11 +640,11 @@ export default function ProductDetail() {
         >
           {/* blank placeholder for now */}
         </div>
-      </section>
+      </section >
 
       {/* Related */}
-      <RelatedRow items={related} />
-    </div>
+      < RelatedRow items={related} />
+    </div >
   );
 }
 

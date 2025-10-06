@@ -16,7 +16,7 @@ import locations from './routes/locations.js';
 import account from './routes/account.js';
 import brandsRouter from './routes/brands.js';
 import cmsRouter from './routes/cms.js';
-import accountProfileRouter from './routes/accountProfile.js';
+import accountProfile from "./routes/accountProfile.js";
 import trySell from './routes/try-sell.js';
 import testRouter from './routes/test.js';
 import { pool } from './db.js';
@@ -74,7 +74,7 @@ app.use('/api/locations', locations);
 app.use('/api/account', account);
 app.use('/api/brands', brandsRouter);
 app.use('/api/cms', cmsRouter);
-app.use('/api/account', accountProfileRouter);
+app.use('/api/account',accountProfile);
 app.use('/api/try-sell', trySell);
 // Central error handler
 // eslint-disable-next-line no-unused-vars

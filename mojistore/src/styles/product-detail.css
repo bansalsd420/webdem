@@ -87,3 +87,38 @@
 .rel-rail::-webkit-scrollbar{ height:8px }
 .rel-rail::-webkit-scrollbar-thumb{ background:#2b2b31; border-radius:8px }
 .rel-card{ scroll-snap-align:start; width:clamp(200px,26vw,250px); flex:0 0 auto; }
+ .disabled-tip{ display:inline-flex; }
+    /* ---------- Pretty tooltip ---------- */
+    .tt{ position:relative; display:inline-flex; }
+    .tt[data-tt]:hover::after{
+      content: attr(data-tt);
+      position:absolute;
+      bottom: calc(100% + 10px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(20,20,24,.96);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,.08);
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 12.5px;
+      line-height: 1.35;
+      max-width: 280px;
+      width: max-content;
+
+      z-index: 101;
+      pointer-events: none;   /* keep hover on the trigger */
+      white-space: normal;    /* allow wrapping */
+      text-align: center;
+    }
+    .tt[data-tt]:hover::before{
+      content: "";
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 50%;
+      transform: translateX(-50%);
+      border: 7px solid transparent;
+      border-top-color: rgba(20,20,24,.96);
+      z-index: 100;
+      pointer-events: none;
+    }

@@ -8,7 +8,15 @@ export const pool = mysql.createPool({
   user: process.env.MYSQL_USER,
   password: process.env.MYSQL_PASSWORD,
   database: process.env.MYSQL_DATABASE,
-  connectionLimit: 20,
+connectionLimit: 20,
   waitForConnections: true,
-  namedPlaceholders: true
+  queueLimit: 0,
+  namedPlaceholders: true,
+  // Fail fast if DB is unreachable instead of hanging
+  connectTimeout: 10_000,
+  // Keep sockets alive (helps behind NAT/VPN)
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 0,
+  // Optional TLS for cloud MySQL (PlanetScale/RDS/Azure). Toggle with MYSQL_SSL=1
+  ssl: (/^(1|true)$/i).test(process.env.MYSQL_SSL || '') ? { rejectUnauthorized: false } : undefined
 });

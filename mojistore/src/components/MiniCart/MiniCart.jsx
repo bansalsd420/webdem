@@ -8,18 +8,21 @@ import { setServer, add as addLocal, remove as removeLocal } from "../../redux/s
 import { useAuth } from "../../state/auth.jsx";
 import SmartImage from "../SmartImage.jsx";
 import { X, Trash2 } from "lucide-react";
-
+import { getLocationId } from "../../utils/locations";
 export default function MiniCart({ onClose }) {
   const { user } = useAuth();
   const dispatch = useDispatch();
   const clientCart = useSelector((s) => s.cart);
   const [loading, setLoading] = useState(true);
-
+  const locationId = getLocationId();
   const load = async () => {
     setLoading(true);
     try {
       if (user) {
-        const { data } = await axios.get("/cart", { withCredentials: true });
+        const { data } = await axios.get("/cart", {
+          withCredentials: true,
+          params: { location_id: locationId },
+        });
         dispatch(setServer(data?.items || []));
       }
     } finally {
@@ -74,8 +77,11 @@ export default function MiniCart({ onClose }) {
       }
       return;
     }
-    await axios.patch("/cart/update", { id: line.id, qty: newQty }, { withCredentials: true });
-    const { data } = await axios.get("/cart", { withCredentials: true });
+    const { data } = await axios.patch(
+      "/cart/update",
+      { id: line.id, qty: newQty, location_id: locationId },
+      { withCredentials: true }
+    );
     dispatch(setServer(data?.items || []));
   };
 
@@ -84,8 +90,10 @@ export default function MiniCart({ onClose }) {
       dispatch(removeLocal(line.id));
       return;
     }
-    await axios.delete(`/cart/remove/${line.id}`, { withCredentials: true });
-    const { data } = await axios.get("/cart", { withCredentials: true });
+    const { data } = await axios.delete(`/cart/remove/${line.id}`, {
+      withCredentials: true,
+      params: { location_id: locationId },
+    });
     dispatch(setServer(data?.items || []));
   };
 
@@ -145,6 +153,7 @@ export default function MiniCart({ onClose }) {
                     <Link
                       to={`/products/${pid}`}
                       onClick={onClose}
+                      state={locationId ? { locationId } : null}
                       className="w-16 h-16 rounded-lg overflow-hidden ring-1 ring-transparent hover:ring-zinc-600/60 transition"
                       style={{ background: "var(--thumb-surface)" }}
                       aria-label={`View details for ${nameText}`}
@@ -178,6 +187,7 @@ export default function MiniCart({ onClose }) {
                       <Link
                         to={`/products/${pid}`}
                         onClick={onClose}
+                        state={locationId ? { locationId } : null}
                         className="truncate text-sm hover:underline hover:text-sky-400 focus-visible:underline outline-none transition"
                         aria-label={`View details for ${nameText}`}
                       >

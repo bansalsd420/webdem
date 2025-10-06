@@ -49,8 +49,8 @@ router.get('/', async (req, res) => {
        WHERE ${where}
        GROUP BY b.id, b.name
        ORDER BY b.name
-      `,
-      params
+       `,
+      { ...params, rowsAsArray: false, timeout: 8000 }   // <- query timeout
     );
 
     const [categories] = await pool.query(
@@ -61,8 +61,8 @@ router.get('/', async (req, res) => {
        WHERE ${where}
        GROUP BY c.id, c.name
        ORDER BY c.name
-      `,
-      params
+    `,
+      { ...params, rowsAsArray: false, timeout: 8000 }
     );
 
     const [subcats] = await pool.query(
@@ -73,14 +73,21 @@ router.get('/', async (req, res) => {
        WHERE ${where}
        GROUP BY sc.id, sc.name
        ORDER BY sc.name
-      `,
-      params
+     `,
+      { ...params, rowsAsArray: false, timeout: 8000 }
     );
 
     res.json({ brands, categories, subcategories: subcats });
-  } catch (err) {
+   } catch (err) {
     console.error('filters error', err);
-    res.status(500).json({ error: 'filters_failed' });
+    const code = err?.code;
+    if (code === 'ETIMEDOUT' || code === 'ECONNREFUSED' || code === 'ENOTFOUND') {
+      return res.status(502).json({ error: 'db_unreachable' });
+    }
+    if (code === 'ER_ACCESS_DENIED_ERROR') {
+      return res.status(500).json({ error: 'db_auth_failed' });
+    }
+    return res.status(500).json({ error: 'filters_failed' });
   }
 });
 

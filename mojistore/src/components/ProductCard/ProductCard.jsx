@@ -6,7 +6,7 @@ import { useWishlist } from "../../state/Wishlist.jsx";
 import { useAuth } from "../../state/auth.jsx";
 import QuickView from "../QuickView/QuickView.jsx";
 import "./product-card.css";
-
+import { getLocationId } from "../../utils/locations";
 /**
  * ProductCard
  *
@@ -31,10 +31,8 @@ export default function ProductCard({
   showPriceStock = true,
   onCardClick,
 }) {
-  const getSelectedLocationId = () => {
-    const v = Number(localStorage.getItem("ms_location_id"));
-    return Number.isFinite(v) ? v : null;
-  };
+// Centralized selection (no direct storage reads)
+  const getSelectedLocationId = () => getLocationId();
 
   const wishlist = useWishlist?.();
   const add = wishlist?.add ?? (async () => {});

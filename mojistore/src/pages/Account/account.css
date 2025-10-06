@@ -364,3 +364,8 @@
 /* Right-align Amount like Orders -> Total */
 .payments-wrap table thead th:nth-child(4),
 .payments-wrap table tbody td:nth-child(4){ text-align: right; }
+/* ---- skeleton helpers for auth-check & loading states ---- */
+.skel { background: rgba(255,255,255,.08); border-radius: 8px; animation: skel-pulse 1.2s ease-in-out infinite; display:inline-block; }
+.skel-bar { height: 28px; }
+.skel-tile { height: 92px; }
+@keyframes skel-pulse { 0%,100%{opacity:.55} 50%{opacity:1} }

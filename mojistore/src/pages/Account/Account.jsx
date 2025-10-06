@@ -57,11 +57,11 @@ export default function Account() {
   // ---------- active tab ----------
   const activeKey = useMemo(() => {
     const q = (params.get("tab") || "").toLowerCase();
-    return TABS.find((t) => t.key === q)?.key || "orders";
+    return TABS.find((t) => t.key === q)?.key || "profile";
   }, [params]);
 
   const ActiveComp = useMemo(
-    () => TABS.find((t) => t.key === activeKey)?.Comp || OrdersTab,
+    () => TABS.find((t) => t.key === activeKey)?.Comp || ProfileTab,
     [activeKey]
   );
 

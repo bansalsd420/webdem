@@ -300,7 +300,7 @@ router.get('/:id', authOptional, async (req, res) => {
         // price per variant (login-gated)
         let vx =
           n(v?.sell_price_inc_tax) ??
-          n(v?.default_sell_price) ??
+          n(v?.default_sell_price) ?? 
           n(v?.price) ?? null;
         if (!loggedIn) vx = null;
 
@@ -347,10 +347,6 @@ router.get('/:id', authOptional, async (req, res) => {
   }
 });
 
-/**
- * GET /api/products/:id/related
- */
-/* ==== PATCH: replace ONLY this route handler in api/src/routes/products.js ==== */
 /**
  * GET /api/products/:id/related
  * - Auth-aware: no price leak for guests (minPrice → null)
@@ -450,7 +446,5 @@ router.get('/:id/related', authOptional, async (req, res) => {
     return res.json([]);
   }
 });
-/* ==== END PATCH ==== */
-
 
 export default router;

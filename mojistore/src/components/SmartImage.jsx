@@ -75,7 +75,7 @@ export default function SmartImage({
       className={className}
       style={style}
       // Priority hint for LCP (supported in Chromium)
-      fetchpriority={priority ? "high" : "auto"}
+      fetchPriority={priority ? "high" : "auto"}
     />
   );
 }

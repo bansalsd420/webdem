@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Layout from './layouts/Layout.jsx';
+import './pages/Account/account.css'; // <-- add this so the skeleton styles apply
 
 // Auth pages
 import Login from './pages/Auth/Login.jsx';
@@ -42,6 +43,36 @@ import TermsPrivacy from './pages/Company/TermsPrivacy.jsx';
 import api from './api/axios.js';
 import { useAuth } from './state/auth.jsx';
 
+/** Account-shaped skeleton so the page never collapses while checking auth */
+function AccountSkeleton() {
+  return (
+    <div className="account-page account-root">
+      <header className="account-header">
+        <h1 className="account-title">Hi, there</h1>
+        <nav className="account-tabs">
+          <span className="skel skel-bar" style={{ width: 72 }} />
+          <span className="skel skel-bar" style={{ width: 72 }} />
+          <span className="skel skel-bar" style={{ width: 98 }} />
+          <span className="skel skel-bar" style={{ width: 96 }} />
+          <span className="skel skel-bar" style={{ width: 88 }} />
+          <span className="skel skel-bar" style={{ width: 72 }} />
+        </nav>
+      </header>
+      <div className="account-grid">
+        <section className="account-content">
+          <div className="summary-grid">
+            <div className="summary-card skel skel-tile" />
+            <div className="summary-card skel skel-tile" />
+            <div className="summary-card skel skel-tile" />
+            <div className="summary-card skel skel-tile" />
+            <div className="summary-card skel skel-tile" />
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
 /** Don’t redirect until cookie session is probed once */
 function RequireAuth({ children }) {
   const { user } = (typeof useAuth === 'function' ? useAuth() : { user: null });
@@ -70,7 +101,7 @@ function RequireAuth({ children }) {
     return () => { alive = false; };
   }, [user]);
 
-  if (state === 'checking') return null;
+  if (state === 'checking') return <AccountSkeleton />; // <— previously `null`
   if (state === 'ready') return children;
 
   const next = encodeURIComponent(loc.pathname + loc.search);
@@ -104,7 +135,7 @@ function RedirectIfAuthed({ children }) {
   }, [user]);
 
   if (isAuthed === null) return null;
-  if (isAuthed === true) return <Navigate to="/account?tab=profile" replace />;
+  if (isAuthed === true) return <Navigate to="/account?tab=profile" replace />; // landing -> Profile
   return children;
 }
 
