@@ -62,3 +62,31 @@ export function withLocation(params = {}) {
   // Send both styles so FE & BE (and any ERP proxy) are happy
   return id != null ? { ...params, locationId: id, location_id: id } : params;
 }
+ // --- NEW: tiny attachment policy ---
+ const LOCATION_SCOPED = [
+   /^\/products\b/i,
+   /^\/product\b/i,
+   /^\/cart\b/i,
+   /^\/checkout\b/i,
+   /^\/search\b/i,
+   /^\/filters\b/i
+ ];
+
+ export function shouldAttachLocationTo(urlPath) {
+   return LOCATION_SCOPED.some(rx => rx.test(urlPath || ''));
+ }
+
+ /**
+  * Attach current location to params ONLY if:
+  *  - explicit === true, OR
+  *  - the URL is location-scoped by policy.
+  * Never invent/guess a location here.
+  */
+ export function attachLocation(params = {}, urlPath = '', { explicit = false } = {}) {
+   const id = getLocationId(); // your existing getter for the current selected location
+   if (!id) return params;
+   if (explicit || shouldAttachLocationTo(urlPath)) {
+     return { ...params, locationId: id, location_id: id };
+   }
+   return params;
+ }

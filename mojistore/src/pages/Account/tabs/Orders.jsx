@@ -28,7 +28,8 @@ export default function Orders() {
   const page  = Number(sp.get('page')  || 1);
   const limit = Number(sp.get('limit') || 20);
   const q     = (sp.get('q') || '').trim();
-  const locationId = sp.get('locationId') || localStorage.getItem('locationId') || '';
+// Only respect an explicit location chosen in THIS tab (via URL).
+ const locationId = sp.get('locationId') || '';
 
   const queryString = useMemo(() => {
     const p = new URLSearchParams();
@@ -63,7 +64,11 @@ export default function Orders() {
     setErr(null);
     (async () => {
       try {
-        const resp = await axios.get(`/account/orders?${queryString}`, { validateStatus: () => true });
+        const resp = await axios.get(`/account/orders?${queryString}`, {
+          validateStatus: () => true,
+          // Attach location only if the tab explicitly set it
+          ...(locationId ? { meta: { location: true } } : {})
+        });
         if (!alive) return;
 
         if (resp.status !== 200) {
@@ -93,6 +98,8 @@ export default function Orders() {
   // react to global location change from Navbar
   useEffect(() => {
     function onLocChanged(e) {
+      // Only react if the tab is ALREADY filtered by location.
+      if (!sp.has('locationId')) return;
       const id = e?.detail?.id;
       const next = new URLSearchParams(sp);
       if (id == null) next.delete('locationId'); else next.set('locationId', String(id));

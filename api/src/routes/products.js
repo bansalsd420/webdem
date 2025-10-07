@@ -224,6 +224,10 @@ router.get('/', authOptional, async (req, res) => {
  * GET /api/products/:id
  * PDP detail (includes variant pricing; honors contact & location when available).
  */
+/**
+ * GET /api/products/:id
+ * PDP detail (includes per-variant qty; honors contact & location when available).
+ */
 router.get('/:id', authOptional, async (req, res) => {
   const pid = n(req.params.id);
   if (!pid) return res.status(400).json({ error: 'bad id' });
@@ -263,7 +267,7 @@ router.get('/:id', authOptional, async (req, res) => {
       Array.isArray(p?.variations) ? p.variations :
       pv.flatMap(v => Array.isArray(v?.variations) ? v.variations : []);
 
-    // compute minPrice (from variations if needed)
+    // compute minPrice
     let minPrice =
       n(p?.min_price) ??
       n(p?.min_sell_price) ??
@@ -288,8 +292,20 @@ router.get('/:id', authOptional, async (req, res) => {
       minPrice,
       in_stock: (function () {
         if (locationId == null) {
-          // All locations: Option B any-location aggregation with clamping
-          return productInStockAny(p);
+          // Any-location aggregate (clamp negatives to 0)
+          const pv2 = Array.isArray(p?.product_variations) ? p.product_variations : [];
+          const flat =
+            Array.isArray(p?.variations) ? p.variations :
+            pv2.flatMap(v => Array.isArray(v?.variations) ? v.variations : []);
+          for (const v of flat) {
+            const locs = Array.isArray(v?.variation_location_details) ? v.variation_location_details : [];
+            for (const d of locs) {
+              const raw = n(d?.qty_available ?? d?.available_qty ?? d?.current_stock ?? d?.stock ?? d?.qty ?? d?.quantity);
+              const q = Number.isFinite(raw) ? Math.max(0, raw) : 0;
+              if (q > 0) return true;
+            }
+          }
+          return false;
         }
         const has = inStockFromVariations(p, locationId);
         if (has != null) return has;
@@ -304,21 +320,23 @@ router.get('/:id', authOptional, async (req, res) => {
           n(v?.price) ?? null;
         if (!loggedIn) vx = null;
 
-        // stock per variant
+        // stock per variant + expose qty
         const locs = Array.isArray(v?.variation_location_details) ? v.variation_location_details : [];
         let vIn = false;
+        let qty = 0;
         if (locationId != null) {
           const row = locs.find(d => n(d?.location_id) === n(locationId));
           const raw = n(row?.qty_available ?? row?.available_qty ?? row?.current_stock ?? row?.stock ?? row?.qty ?? row?.quantity);
-          const qty = Number.isFinite(raw) ? Math.max(0, raw) : 0;
+          qty = Number.isFinite(raw) ? Math.max(0, raw) : 0;
           vIn = qty > 0;
         } else {
-          // Any location > 0 for this variant (clamped)
+          // Sum across all locations (clamped)
           for (const d of locs) {
             const raw = n(d?.qty_available ?? d?.available_qty ?? d?.current_stock ?? d?.stock ?? d?.qty ?? d?.quantity);
-            const qty = Number.isFinite(raw) ? Math.max(0, raw) : 0;
-            if (qty > 0) { vIn = true; break; }
+            const q = Number.isFinite(raw) ? Math.max(0, raw) : 0;
+            qty += q;
           }
+          vIn = qty > 0;
         }
 
         // per-variant image if present
@@ -333,6 +351,7 @@ router.get('/:id', authOptional, async (req, res) => {
           label: s(v?.name) ?? s(v?.variation_name) ?? s(p?.product_variation_name) ?? 'Variant',
           price: vx,
           in_stock: vIn,
+          qty,           // ← expose available quantity
           image: vImg,
           sku: s(v?.sub_sku) ?? null,
         };
@@ -346,6 +365,7 @@ router.get('/:id', authOptional, async (req, res) => {
     return res.status(status).json({ error: 'product_failed' });
   }
 });
+
 
 /**
  * GET /api/products/:id/related

@@ -1,7 +1,6 @@
 // src/pages/ProductDetail/ProductDetail.jsx
-// Fast hero image, instant paint from Products → Link state, 3–4 row shimmer
-// table while variants load, fixed column widths, Add All footer + toast,
-// qty=0 defaults, proper enabling rules, location-aware refetch.
+// PDP with per-variant quantity display, stock guard, and Amazon-style alert.
+// Location method is left untouched (uses your existing utils + axios setup).
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
@@ -14,7 +13,6 @@ import SmartImage from "../../components/SmartImage.jsx";
 import "../../styles/product-detail.css";
 import { getLocationId, withLocation } from "../../utils/locations";
 
-
 export default function ProductDetail() {
   const { id } = useParams();
   const nav = useNavigate();
@@ -22,41 +20,39 @@ export default function ProductDetail() {
   const { user } = useAuth();
   const dispatch = useDispatch();
 
-  // ----- Instant paint from Products page (Link state) -----
+  // Instant paint from Products page
   const quick = (loc.state && loc.state.product) || null;
 
   const [data, setData] = useState(quick || null);
   const [related, setRelated] = useState([]);
   const [variantId, setVariantId] = useState(quick?.variants?.[0]?.id ?? null);
 
-
-  // Location-aware: centralized selection (no "All" sentinel anymore)
+  // Location (unchanged policy)
   const [locationId, setLocationId] = useState(() => getLocationId());
   const refetchTimer = useRef(null);
-  // qty defaults to 0
+
+  // Quantities & UI
   const [qty, setQty] = useState(0);
   const [rowQty, setRowQty] = useState({});
-  const [loadingDetail, setLoadingDetail] = useState(!quick);           // detail fetch
-  const [loadingVariants, setLoadingVariants] = useState(!quick);       // table shimmer trigger      // table shimmer trigger
+  const [loadingDetail, setLoadingDetail] = useState(!quick);
+  const [loadingVariants, setLoadingVariants] = useState(!quick);
   const [addedTick, setAddedTick] = useState(false);
   const [adding, setAdding] = useState(false);
   const [rowAdding, setRowAdding] = useState({});
   const [addingAll, setAddingAll] = useState(false);
   const [wishMsg, setWishMsg] = useState("");
   const [addAllToast, setAddAllToast] = useState("");
+  const [alertMsg, setAlertMsg] = useState("");
 
-  // Keep local locationId in sync with global changes
+  // Sync location
   useEffect(() => {
     const sync = () => setLocationId(getLocationId());
     window.addEventListener("location:changed", sync);
-    // pick up initial value (e.g., after boot)
     sync();
-    return () => {
-      window.removeEventListener("location:changed", sync);
-    };
+    return () => window.removeEventListener("location:changed", sync);
   }, []);
 
-  // Fetch product detail (debounced on location change)
+  // Fetch product detail (location-aware)
   useEffect(() => {
     let alive = true;
     if (refetchTimer.current) clearTimeout(refetchTimer.current);
@@ -67,28 +63,24 @@ export default function ProductDetail() {
         if (!alive) return;
         const { data: full } = await axios.get(
           `/products/${id}`,
-          { withCredentials: true, params: withLocation({}) }
+          { withCredentials: true, params: withLocation({}) } // leave your location method intact
         );
         if (!alive) return;
-        setData(full);                            // ✅ correct setter
-        // ensure a valid default variant is selected
+        setData(full);
         const firstVar = Array.isArray(full?.variants) ? (full.variants[0]?.id ?? null) : null;
-        setVariantId((prev) =>
-          full?.variants?.some(v => v.id === prev) ? prev : firstVar
-        );
+        setVariantId((prev) => (full?.variants?.some(v => v.id === prev) ? prev : firstVar));
         setLoadingDetail(false);
         setLoadingVariants(false);
       } catch {
         if (alive) {
-          setData(null);                         // ✅ correct setter
+          setData(null);
           setLoadingDetail(false);
           setLoadingVariants(false);
         }
       }
-    }, 150);
+    }, 120);
     return () => { alive = false; clearTimeout(refetchTimer.current); };
   }, [id, locationId]);
-
 
   // Fetch related (location-aware)
   useEffect(() => {
@@ -104,12 +96,10 @@ export default function ProductDetail() {
         if (alive) setRelated([]);
       }
     })();
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, [id, locationId]);
 
-  // ---------- helpers ----------
+  // Variants list (filter out dummy)
   const realVariants = useMemo(() => {
     const arr = Array.isArray(data?.variants) ? data.variants : [];
     return arr.filter((v) => {
@@ -117,6 +107,7 @@ export default function ProductDetail() {
       return label && label !== "dummy" && label !== "default";
     });
   }, [data]);
+
   const showTable = realVariants.length >= 2;
 
   const activeVariant = useMemo(
@@ -124,14 +115,9 @@ export default function ProductDetail() {
     [data, variantId]
   );
 
-  // Single-card stock logic
-  // Location-aware stock (tri-state):
-  // - null   → unknown (don't claim "In stock" yet)
-  // - true   → in stock
-  // - false  → out of stock
+  // Location-aware stock tri-state for header pill
   const anyInStockHere = useMemo(() => {
     if (realVariants.length) {
-      // if any row explicitly says out-of-stock === false, otherwise unknown rows are ignored
       let sawKnown = false;
       let any = false;
       for (const v of realVariants) {
@@ -151,20 +137,34 @@ export default function ProductDetail() {
     if (activeVariant?.in_stock === false) return false;
     if (data?.in_stock === true) return true;
     if (data?.in_stock === false) return false;
-    return false; // unknown -> don't claim true
+    return false;
   }, [showTable, anyInStockHere, activeVariant, data]);
 
-  // Price view (only when logged in)
+  // Price (auth-gated)
   const priceDisplay = useMemo(() => {
     if (!user) return null;
     return activeVariant?.price ?? data?.minPrice ?? null;
   }, [activeVariant, data, user]);
+
+  // Helper: find available qty for a given variant id
+  const getAvailableFor = (vid) => {
+    const v = (data?.variants || []).find(x => x.id === vid);
+    const raw = Number(v?.qty);
+    return Number.isFinite(raw) ? Math.max(0, raw) : null;
+  };
+
+  // Alerts
+  const showAmazonAlert = (msg) => {
+    setAlertMsg(msg);
+    setTimeout(() => setAlertMsg(""), 1600);
+  };
 
   const uiConfirm = () => {
     setAddedTick(true);
     setTimeout(() => setAddedTick(false), 900);
   };
 
+  // Add to cart (snake_case body) + stock guard
   const addToCart = async (variationId, quantity, scope) => {
     if (!variationId || quantity <= 0) return;
 
@@ -174,20 +174,35 @@ export default function ProductDetail() {
       return;
     }
 
+    // Pre-check against available qty when known
+    const available = getAvailableFor(variationId);
+    if (available != null && quantity > available) {
+      showAmazonAlert("Quantity not available");
+      return;
+    }
+
     if (scope?.type === "main") setAdding(true);
     if (scope?.type === "row" && scope.id) setRowAdding((p) => ({ ...p, [scope.id]: true }));
 
     try {
       await axios.post(
         "/cart/add",
-        { productId: Number(id), variationId, qty: quantity },
-        { withCredentials: true }
+        { product_id: Number(id), variation_id: variationId, quantity }, // snake_case
+        { withCredentials: true } // location is attached by your interceptor/policy
       );
+
       const { data: cart } = await axios.get("/cart", { withCredentials: true });
       dispatch(setServer(cart?.items || []));
       uiConfirm();
     } catch (e) {
-      console.error("Add to cart failed", e);
+      // If API returns 409 with {error:'insufficient_stock', available}
+      const available = Number(e?.response?.data?.available);
+      if (!Number.isNaN(available) && available >= 0) {
+        showAmazonAlert(available === 0 ? "Out of stock" : `Only ${available} available`);
+      } else {
+        console.error("Add to cart failed", e);
+        showAmazonAlert("Could not add to cart");
+      }
     } finally {
       if (scope?.type === "main") setAdding(false);
       if (scope?.type === "row" && scope.id) setRowAdding((p) => ({ ...p, [scope.id]: false }));
@@ -200,15 +215,23 @@ export default function ProductDetail() {
     const toAdd = list.filter((v) => (rowQty[v.id] || 0) > 0 && v.in_stock !== false);
     if (!toAdd.length) return;
 
+    // Pre-scan for any impossible quantities
+    for (const v of toAdd) {
+      const want = Math.max(0, Math.floor(rowQty[v.id] || 0));
+      const avail = getAvailableFor(v.id);
+      if (avail != null && want > avail) {
+        showAmazonAlert(`Only ${avail} available for "${v.label || v.name}"`);
+        return;
+      }
+    }
+
     setAddingAll(true);
     let success = 0;
     for (const v of toAdd) {
       try {
-        await addToCart(v.id, rowQty[v.id], { type: "row", id: v.id });
+        await addToCart(v.id, Math.max(0, Math.floor(rowQty[v.id] || 0)), { type: "row", id: v.id });
         success++;
-      } catch {
-        // continue
-      }
+      } catch { /* already handled */ }
     }
     // reset all row qty to 0 after attempt
     setRowQty((prev) => {
@@ -270,8 +293,29 @@ export default function ProductDetail() {
     }
   };
 
-  // --------------- RENDER ----------------
-  // Tiny CSS for shimmer (scoped)
+  // Inline minimal CSS for the Amazon-style alert
+  const AlertStyle = () => (
+    <style>{`
+      .pdp-alert{
+        position: fixed;
+        left: 50%;
+        bottom: 24px;
+        transform: translateX(-50%);
+        background: #FEF2F2;
+        color: #991B1B;
+        border: 1px solid #FCA5A5;
+        border-radius: 8px;
+        padding: 10px 14px;
+        box-shadow: 0 8px 30px rgba(0,0,0,.18);
+        z-index: 2000;
+        animation: alertIn .2s ease-out, alertOut .2s ease-in 1.4s forwards;
+      }
+      @keyframes alertIn{ from{ opacity:0; transform: translateX(-50%) translateY(6px) } to{ opacity:1; transform: translateX(-50%) } }
+      @keyframes alertOut{ to{ opacity:0; transform: translateX(-50%) translateY(4px) } }
+    `}</style>
+  );
+
+  // Shimmer CSS
   const ShimmerStyle = () => (
     <style>{`
       @keyframes pdpShimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
@@ -281,11 +325,8 @@ export default function ProductDetail() {
         background-size: 200% 100%;
       }
       .dark .pdp-shimmer{
-      
         background: linear-gradient(90deg, rgba(255,255,255,0.06) 25%, rgba(255,255,255,0.12) 37%, rgba(255,255,255,0.06) 63%);
       }
-        
-         /* ---------- PDP table tweaks ---------- */
       .pdp-vars-wrap{ border:1px solid var(--border-subtle); border-radius:12px; padding:6px 8px; }
       .pdp-vars{ width:100%; border-collapse:separate; border-spacing:0 6px; }
       .pdp-vars th{ text-align:left; color:var(--text-muted); font-weight:600; padding:.5rem .75rem; white-space:nowrap; }
@@ -296,16 +337,14 @@ export default function ProductDetail() {
       .pdp-vars .row-actions{ display:flex; gap:.6rem; align-items:center; }
       .pdp-vars .qty-box.sm{ height:36px; }
       .pdp-vars .qty-input{ width:46px; text-align:center; }
-      .pdp-vars .variant-pill{
-        display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
-        overflow:hidden; line-height:1.2;
-      }
-      
+      .pdp-vars .variant-pill{ display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; line-height:1.2; }
     `}</style>
   );
 
+  // ---- RENDER
   return (
     <div className="mx-auto max-w-7xl px-3 sm:px-6 py-6 space-y-8">
+      <AlertStyle />
       <ShimmerStyle />
 
       {/* Header: image + info */}
@@ -313,7 +352,6 @@ export default function ProductDetail() {
         <div className="grid grid-cols-12 gap-6 items-start">
           <div className="col-span-12 lg:col-span-4">
             <div className="pdp-image-box relative group">
-              {/* Fast image: provide src + responsive hints */}
               <SmartImage
                 src={heroSrc}
                 image={heroSrc}
@@ -331,7 +369,7 @@ export default function ProductDetail() {
                     : undefined
                 }
               />
-              {/* Hover overlay + wishlist */}
+
               <div className="pointer-events-none absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors"></div>
               <button
                 aria-label="Add to wishlist"
@@ -380,7 +418,7 @@ export default function ProductDetail() {
               )}
             </div>
 
-            {/* Single buy block — ONLY when table is hidden */}
+            {/* Single buy block (only if no table) */}
             {!showTable && (
               <div className="pdp-actions relative">
                 <div className="pdp-price">
@@ -390,6 +428,11 @@ export default function ProductDetail() {
                     <span className="muted">Login to see prices</span>
                   )}
                 </div>
+
+                {/* Show available qty if we know it for the active variant */}
+                {activeVariant?.qty != null && (
+                  <div className="text-sm text-gray-500 mb-1">{activeVariant.qty} available</div>
+                )}
 
                 <div className="qty-box">
                   <button className="qty-btn" onClick={() => setQty((q) => Math.max(0, q - 1))} disabled={qty <= 0}>
@@ -415,11 +458,10 @@ export default function ProductDetail() {
                 <span
                   className="disabled-tip tt"
                   data-tt={
-                    !singleInStock
-                      ? "Can't add"
-                      : (qty <= 0
-                        ? "Increase quantity"
-                        : (!variantId ? "Select a variation" : ""))
+                    (!singleInStock && "Can't add") ||
+                    (qty <= 0 && "Increase quantity") ||
+                    (!variantId && "Select a variation") ||
+                    null  // remove attribute when enabled → no empty tooltip
                   }
                 >
                   <button
@@ -439,22 +481,16 @@ export default function ProductDetail() {
               </div>
             )}
 
-            {/* Variations — only show when a table is (or will be) rendered */}
+            {/* Variations table */}
             {(showTable || (loadingVariants && Array.isArray(data?.variants) && data.variants.length >= 2)) && (
               <div className="mt-6">
                 <div className="text-sm font-semibold mb-2">All variations</div>
 
-                {/* Shimmer skeleton while variants load */}
                 {loadingVariants && (
                   <div className="pdp-vars-wrap">
                     <table className="pdp-vars">
                       <colgroup>
-                        {[
-                          undefined,                    // Variation
-                          { width: 120 },               // Price
-                          { width: 110 },               // Stock
-                          { width: 280 },               // Actions
-                        ].map((style, i) => <col key={i} style={style} />)}
+                        {[undefined, { width: 120 }, { width: 150 }, { width: 280 }].map((style, i) => <col key={i} style={style} />)}
                       </colgroup>
                       <thead>
                         <tr>
@@ -469,7 +505,7 @@ export default function ProductDetail() {
                           <tr key={i}>
                             <td><div className="pdp-shimmer h-6 rounded" /></td>
                             <td><div className="pdp-shimmer h-6 rounded w-20 ml-auto" /></td>
-                            <td className="text-center"><div className="pdp-shimmer h-6 rounded inline-block w-20" /></td>
+                            <td className="text-center"><div className="pdp-shimmer h-6 rounded inline-block w-24" /></td>
                             <td>
                               <div className="flex items-center gap-3 justify-end">
                                 <div className="pdp-shimmer h-9 w-28 rounded" />
@@ -483,18 +519,12 @@ export default function ProductDetail() {
                   </div>
                 )}
 
-                {/* Real table (only when 2+ real variants) */}
                 {!loadingVariants && showTable && (
                   <>
                     <div className="pdp-vars-wrap">
                       <table className="pdp-vars" style={{ tableLayout: "fixed" }}>
                         <colgroup>
-                          {[
-                            undefined,                    // Variation
-                            { width: 120 },               // Price
-                            { width: 110 },               // Stock
-                            { width: 280 },               // Actions
-                          ].map((style, i) => <col key={i} style={style} />)}
+                          {[undefined, { width: 120 }, { width: 150 }, { width: 280 }].map((style, i) => <col key={i} style={style} />)}
                         </colgroup>
                         <thead>
                           <tr>
@@ -509,7 +539,10 @@ export default function ProductDetail() {
                             const showPrice = !!user && v.price != null;
                             const rowDisabled = v?.in_stock === false;
                             const val = Math.max(0, Math.floor(rowQty?.[v.id] ?? 0));
-                            const addDisabled = (val <= 0) || rowDisabled || (!!user && !showPrice) || !!rowAdding?.[v.id];
+                            const available = (v.qty != null ? Math.max(0, Number(v.qty) || 0) : null);
+                            const exceeds = available != null && val > available;
+                            const addDisabled =
+                              (val <= 0) || rowDisabled || (!!user && !showPrice) || !!rowAdding?.[v.id] || exceeds;
 
                             return (
                               <tr key={v.id} className={`${rowDisabled ? "is-disabled" : ""}`}>
@@ -527,7 +560,14 @@ export default function ProductDetail() {
                                   <span className={`badge ${rowDisabled ? "bad" : "ok"}`} style={{ whiteSpace: "nowrap" }}>
                                     {rowDisabled ? "Out of stock" : "In stock"}
                                   </span>
+                                  {available != null && !rowDisabled && (
+                                    <div className="text-xs mt-1 opacity-80">{available} available</div>
+                                  )}
+                                  {exceeds && (
+                                    <div className="text-xs mt-1 text-rose-600">Only {available} available</div>
+                                  )}
                                 </td>
+
                                 <td>
                                   <div className="row-actions justify-end">
                                     <div className="qty-box sm">
@@ -557,23 +597,22 @@ export default function ProductDetail() {
                                           setRowQty((prev) => ({ ...prev, [v.id]: Math.floor((prev[v.id] || 0) + 1) }))
                                         }
                                         aria-label="Increase"
-                                        /* allow increment even when OOS; add-to-cart stays disabled */
-                                        disabled={false}
                                       >
                                         +
                                       </button>
                                     </div>
 
-                                    {/* Wrap the disabled button so title tooltip still shows */}
                                     <span
                                       className="disabled-tip tt"
                                       data-tt={
                                         addDisabled
                                           ? (rowDisabled
-                                            ? "Out of stock"
-                                            : (val <= 0
-                                              ? "Increase quantity"
-                                              : (!!user && !showPrice ? "Login to see prices" : "")))
+                                              ? "Out of stock"
+                                              : (val <= 0
+                                                  ? "Increase quantity"
+                                                  : (!!user && !showPrice
+                                                      ? "Login to see prices"
+                                                      : (exceeds ? `Only ${available} available` : ""))))
                                           : null
                                       }
                                     >
@@ -598,7 +637,6 @@ export default function ProductDetail() {
                       </table>
                     </div>
 
-                    {/* Add All — footer, prominent */}
                     <div className="mt-4 flex justify-end">
                       <button
                         className="primary-cta"
@@ -622,12 +660,11 @@ export default function ProductDetail() {
               </div>
             )}
           </div>
+        </div>
+      </section>
 
-        </div >
-      </section >
-
-      {/* Description — theme-aware, pretty */}
-      < section className="mt-2" >
+      {/* Description placeholder */}
+      <section className="mt-2">
         <h3 className="text-lg font-semibold mb-2">Description</h3>
         <div
           className="rounded-xl shadow-sm px-5 py-5 text-sm"
@@ -637,18 +674,19 @@ export default function ProductDetail() {
             color: "var(--text-muted)",
             border: "1px solid var(--border-subtle)",
           }}
-        >
-          {/* blank placeholder for now */}
-        </div>
-      </section >
+        />
+      </section>
 
       {/* Related */}
-      < RelatedRow items={related} />
-    </div >
+      <RelatedRow items={related} />
+
+      {/* Amazon-style alert */}
+      {!!alertMsg && <div className="pdp-alert">{alertMsg}</div>}
+    </div>
   );
 }
 
-/** Related rail — one-card tick, endless */
+/** Related rail */
 function RelatedRow({ items }) {
   const outerRef = useRef(null);
   const tickRef = useRef(null);

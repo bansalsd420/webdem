@@ -22,8 +22,7 @@ export default function Ledger() {
   const [from, setFrom] = useState(searchParams.get('from') || '');
   const [to, setTo] = useState(searchParams.get('to') || '');
   const [q, setQ] = useState(searchParams.get('q') || '');
-  const locationId = searchParams.get('locationId') || localStorage.getItem('locationId') || '';
-
+  const locationId = searchParams.get('locationId') || '';
   // pagination
   const [page, setPage] = useState(Number(searchParams.get('page') || 1));
   const [limit, setLimit] = useState(Number(searchParams.get('limit') || 20));
@@ -31,7 +30,7 @@ export default function Ledger() {
   // data
   const [rows, setRows] = useState([]);
   const [summary, setSummary] = useState({
-    range:   { total_invoice: 0, total_paid: 0, balance_due: 0 },
+    range: { total_invoice: 0, total_paid: 0, balance_due: 0 },
     overall: { total_invoice: 0, total_paid: 0, balance_due: 0 }
   });
   const [total, setTotal] = useState(0);
@@ -62,7 +61,8 @@ export default function Ledger() {
     try {
       const resp = await axios.get(`/account/ledger?${queryString}`, {
         withCredentials: true,
-        validateStatus: () => true
+        validateStatus: () => true,
+        ...(locationId ? { meta: { location: true } } : {})
       });
       if (resp.status !== 200) throw new Error('server_error');
 
@@ -70,7 +70,7 @@ export default function Ledger() {
       const pack = {
         rows: Array.isArray(data.rows) ? data.rows : [],
         summary: data.summary || {
-          range:   { total_invoice: 0, total_paid: 0, balance_due: 0 },
+          range: { total_invoice: 0, total_paid: 0, balance_due: 0 },
           overall: { total_invoice: 0, total_paid: 0, balance_due: 0 }
         },
         total: Number(resp.headers['x-total-count'] || resp.headers['X-Total-Count'] || 0),
@@ -105,14 +105,14 @@ export default function Ledger() {
   // broadcast listener for location switch
   useEffect(() => {
     function onLocChanged(e) {
+      // Only propagate if this tab is already filtered by location.
+      if (!searchParams.has('locationId')) return;
       const id = e?.detail?.id;
-      if (id) {
-        const next = new URLSearchParams(searchParams);
-        next.set('locationId', String(id));
-        next.set('page', '1');
-        setPage(1);
-        setSearchParams(next, { replace: true });
-      }
+      const next = new URLSearchParams(searchParams);
+      if (id) next.set('locationId', String(id)); else next.delete('locationId');
+      next.set('page', '1');
+      setPage(1);
+      setSearchParams(next, { replace: true });
     }
     window.addEventListener('location:changed', onLocChanged);
     return () => window.removeEventListener('location:changed', onLocChanged);

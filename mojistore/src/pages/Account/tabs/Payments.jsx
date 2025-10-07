@@ -38,7 +38,7 @@ export default function Payments() {
   const from = sp.get('from') || '';
   const to = sp.get('to') || '';
   const method = sp.get('method') || '';
-  const locationId = sp.get('locationId') || localStorage.getItem('locationId') || '';
+const locationId = sp.get('locationId') || '';
 
   // server data
   const [rows, setRows] = useState([]);
@@ -97,9 +97,10 @@ export default function Payments() {
     if (stale || reloadTick > 0) {
       (async () => {
         try {
-          const resp = await axios.get(`/account/payments?${queryString}`, {
+             const resp = await axios.get(`/account/payments?${queryString}`, {
             withCredentials: true,
             validateStatus: () => true,
+            ...(locationId ? { meta: { location: true } } : {})
           });
           if (!alive) return;
 
@@ -134,6 +135,7 @@ export default function Payments() {
   // React to global location change like Orders
   useEffect(() => {
     function onLocChanged(e) {
+      if (!sp.has('locationId')) return;
       const id = e?.detail?.id;
       const next = new URLSearchParams(sp);
       if (id == null) next.delete('locationId'); else next.set('locationId', String(id));
