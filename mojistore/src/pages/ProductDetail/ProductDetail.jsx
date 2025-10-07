@@ -26,6 +26,39 @@ export default function ProductDetail() {
   const [data, setData] = useState(quick || null);
   const [related, setRelated] = useState([]);
   const [variantId, setVariantId] = useState(quick?.variants?.[0]?.id ?? null);
+  // --- Image gallery (moved here so we can safely reference data/quick) ---
+  const [gallery, setGallery] = useState(null);
+  const [activeIdx, setActiveIdx] = useState(0); // NEW: which gallery image is selected
+  const [heroLoading, setHeroLoading] = useState(false);   // NEW: spinner while hero swaps
+  // compute cache key so we don't refetch on tab back/forward
+  const galleryKey = useMemo(() => {
+    const lid = localStorage.getItem('locationId') || '';
+    const pid = (data?.id ?? quick?.id ?? id);
+    return `pd.gallery|${pid}|${lid}`;
+  }, [id, data?.id, quick?.id]);
+  useEffect(() => {
+    let alive = true;
+    // serve from session cache instantly
+    const cached = sessionStorage.getItem(galleryKey);
+    if (cached) {
+      try { const j = JSON.parse(cached); if (Array.isArray(j?.images)) setGallery(j); } catch { }
+    }
+    (async () => {
+      try {
+        const lid = localStorage.getItem('locationId') || '';
+        const resp = await axios.get(`/products/${id}/media`, { params: lid ? { locationId: lid } : undefined });
+        if (!alive) return;
+        if (resp?.status === 200 && Array.isArray(resp.data?.images)) {
+          const pack = { images: resp.data.images, primary: resp.data.primary || null };
+          setGallery(pack);
+          sessionStorage.setItem(galleryKey, JSON.stringify(pack));
+        }
+      } catch {
+        // ignore; PDP will keep working with product.image
+      }
+    })();
+    return () => { alive = false; };
+  }, [id, galleryKey]);
 
   // Location (unchanged policy)
   const [locationId, setLocationId] = useState(() => getLocationId());
@@ -260,8 +293,37 @@ export default function ProductDetail() {
     );
   };
 
-  const heroSrc = pickHeroImage(data || quick || {});
-
+  // Build a flat list of gallery urls once (if any)
+  const galleryList = useMemo(() => {
+    if (!Array.isArray(gallery?.images)) return [];
+    // Map to strings and discard empties / whitespace-only
+    const raw = gallery.images.map((x) => (x && (x.url ?? x)) || "").filter((u) => {
+      return typeof u === "string" && u.trim().length > 0;
+    });
+    return raw;
+  }, [gallery]);
+  const activeAlt = useMemo(
+    () => (Array.isArray(gallery?.images) ? gallery.images[Math.min(activeIdx, gallery.images.length - 1)]?.alt : '') || '',
+    [gallery, activeIdx]
+  );
+  const heroSrc = useMemo(() => {
+    const fallback = pickHeroImage(data || quick || {});
+    if (galleryList.length === 0) return fallback;
+    const i = Math.min(activeIdx, galleryList.length - 1);
+    const url = galleryList[i];
+    // If somehow empty after filtering, still fall back
+    return (typeof url === "string" && url.trim()) ? url : fallback;
+  }, [galleryList, activeIdx, data, quick]);
+  // Preload hero image and stop spinner when it's ready
+  useEffect(() => {
+    if (!heroSrc) { setHeroLoading(false); return; }
+    setHeroLoading(true);
+    const img = new Image();
+    img.onload = () => setHeroLoading(false);
+    img.onerror = () => setHeroLoading(false);
+    img.src = heroSrc;
+    return () => { img.onload = null; img.onerror = null; };
+  }, [heroSrc]);
   const handleWishlistToggle = async () => {
     if (!data) return;
     try {
@@ -340,7 +402,10 @@ export default function ProductDetail() {
       .pdp-vars .variant-pill{ display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; line-height:1.2; }
     `}</style>
   );
-
+  
+  useEffect(() => {
+    if (activeIdx >= (galleryList?.length || 0)) setActiveIdx(0);
+  }, [galleryList]);
   // ---- RENDER
   return (
     <div className="mx-auto max-w-7xl px-3 sm:px-6 py-6 space-y-8">
@@ -353,6 +418,7 @@ export default function ProductDetail() {
           <div className="col-span-12 lg:col-span-4">
             <div className="pdp-image-box relative group">
               <SmartImage
+              key={heroSrc}
                 src={heroSrc}
                 image={heroSrc}
                 alt={(data || quick)?.name || ""}
@@ -363,13 +429,18 @@ export default function ProductDetail() {
                 fetchPriority="high"
                 decoding="async"
                 sizes="(min-width:1024px) 33vw, 90vw"
-                srcSet={
-                  heroSrc
-                    ? `${heroSrc}?w=480 480w, ${heroSrc}?w=768 768w, ${heroSrc}?w=1024 1024w, ${heroSrc}?w=1440 1440w`
-                    : undefined
-                }
-              />
 
+              // SmartImage needs onLoad to clear its own placeholder/blur
+                onLoad={() => setHeroLoading(false)}
+              />
+              {/* loading mask when swapping hero */}
+              {heroLoading && (
+                <div className="pdp-hero-mask">
+                  <div className="spinner" />
+                </div>
+              )}
+              {/* badge with product/variant name from gallery (if present) */}
+              {activeAlt ? <span className="pd-img-badge">{activeAlt}</span> : null}
               <div className="pointer-events-none absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors"></div>
               <button
                 aria-label="Add to wishlist"
@@ -387,6 +458,45 @@ export default function ProductDetail() {
                 </div>
               )}
             </div>
+
+            {/* THUMBNAILS */}
+            {galleryList.length > 1 && (
+              <div className="pdp-thumbs mt-2">
+                {galleryList.map((u, i) => (
+                  !u ? null : (
+                    <button
+                      key={`${u}-${i}`}
+                      type="button"
+                      className={`pdp-thumb ${i === activeIdx ? 'is-active' : ''}`}
+                       onClick={() => {
+                        // 1) prime the cache so the swap is snappy
+                        try {
+                          const raw = String(u).split('?')[0];
+                          const pre = new Image();
+                          pre.decoding = 'async';
+                          pre.src = raw;
+                        } catch {}
+                        // 2) select the thumb; spinner starts in the heroSrc effect
+                        setActiveIdx(i);
+                      }}
+                      title={Array.isArray(gallery?.images) ? (gallery.images[i]?.alt || 'Image') : 'Image'}
+                    >
+                      <img
+                        src={u}
+                        alt=""
+                        loading="lazy"
+                        onError={(e) => {
+                          // If a CDN param ever sneaks in elsewhere, fall back to the raw URL
+                          try {
+                            const raw = String(u).split('?')[0];
+                            if (e.currentTarget.src !== raw) e.currentTarget.src = raw;
+                          } catch { }
+                        }}
+                      />
+                    </button>)
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="col-span-12 lg:col-span-8">
@@ -607,12 +717,12 @@ export default function ProductDetail() {
                                       data-tt={
                                         addDisabled
                                           ? (rowDisabled
-                                              ? "Out of stock"
-                                              : (val <= 0
-                                                  ? "Increase quantity"
-                                                  : (!!user && !showPrice
-                                                      ? "Login to see prices"
-                                                      : (exceeds ? `Only ${available} available` : ""))))
+                                            ? "Out of stock"
+                                            : (val <= 0
+                                              ? "Increase quantity"
+                                              : (!!user && !showPrice
+                                                ? "Login to see prices"
+                                                : (exceeds ? `Only ${available} available` : ""))))
                                           : null
                                       }
                                     >

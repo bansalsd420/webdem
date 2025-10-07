@@ -11,7 +11,7 @@ import ResetPassword from './pages/Auth/ResetPassword.jsx';
 
 // Global state
 import { FiltersProvider } from './state/filtersStore';
-
+import TestPanel from './pages/Test.jsx';
 // Account tabs
 import Account from './pages/Account/Account.jsx';
 import Profile from './pages/Account/tabs/Profile.jsx';
@@ -84,7 +84,7 @@ function RequireAuth({ children }) {
     let alive = true;
     if (user) {
       setState('ready');
-      return () => {};
+      return () => { };
     }
     (async () => {
       try {
@@ -117,7 +117,7 @@ function RedirectIfAuthed({ children }) {
     let alive = true;
     if (user) {
       setIsAuthed(true);
-      return () => {};
+      return () => { };
     }
     (async () => {
       try {
@@ -159,6 +159,8 @@ export default function App() {
             <Route path="login" element={<RedirectIfAuthed><Login /></RedirectIfAuthed>} />
             <Route path="register" element={<RedirectIfAuthed><Register /></RedirectIfAuthed>} />
             <Route path="reset" element={<RedirectIfAuthed><ResetPassword /></RedirectIfAuthed>} />
+            // in your App.jsx / router file
+            <Route path="/__test" element={<TestPanel />} />
 
             {/* Company / Legal */}
             <Route path="about" element={<About />} />

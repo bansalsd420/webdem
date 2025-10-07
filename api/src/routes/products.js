@@ -365,6 +365,91 @@ router.get('/:id', authOptional, async (req, res) => {
     return res.status(status).json({ error: 'product_failed' });
   }
 });
+// GET /api/products/:id/media  -> { id, images:[{url,alt,variant_id}], primary }
+router.get('/:id/media', async (req, res) => {
+  const pid = n(req.params.id);
+  if (!pid) return res.status(400).json({ error: 'bad_id' });
+
+  const locationId =
+    n(req.query.locationId) ?? n(req.query.location_id) ?? undefined;
+
+  // local utils (no new deps)
+  const normUrl = (u) => {
+    if (!u) return '';
+    try {
+      const url = new URL(String(u));
+      ['w','width','h','height','fit'].forEach(k => url.searchParams.delete(k));
+      return url.origin + url.pathname;
+    } catch { return String(u || ''); }
+  };
+  const pushIf = (arr, url, alt, variantId = null) => {
+    if (!url) return;
+    arr.push({ url: String(url), alt: String(alt || ''), variant_id: variantId });
+  };
+  const uniqByUrl = (arr) => {
+    const seen = new Set(); const out = [];
+    for (const it of arr) {
+      const key = normUrl(it.url);
+      if (!key || seen.has(key)) continue;
+      seen.add(key); out.push(it);
+    }
+    return out;
+  };
+
+  try {
+    // try common product detail endpoints; keep parity with your existing detail route
+    const { data } = await erpGetAny(
+      [`/product/${pid}`, `/productapi/${pid}`, `/products/${pid}`],
+      {
+        query: {
+          business_id: biz(),
+          location_id: locationId,
+          include_location_details: 1
+        }
+      }
+    );
+
+    const p = Array.isArray(data?.data) ? data.data[0] : (data?.data || data);
+    if (!p) return res.status(404).json({ error: 'not_found' });
+
+    const images = [];
+    const baseName = s(p?.name ?? p?.product_name ?? p?.title ?? '');
+
+    // product-level image(s)
+    const prImage =
+      p?.image ?? p?.product_image ?? p?.image_url ?? p?.product_image_url ?? null;
+    pushIf(images, prImage, baseName, null);
+
+    const pImgs = Array.isArray(p?.images) ? p.images : [];
+    for (const im of pImgs) pushIf(images, im?.url || im?.display_url || im, baseName, null);
+
+    const pMedia = Array.isArray(p?.media) ? p.media : [];
+    for (const m of pMedia) pushIf(images, m?.display_url || m?.url || m, baseName, null);
+
+    // flatten variations: product_variations[*].variations[*] OR plain variations[*]
+    const pv = Array.isArray(p?.product_variations) ? p.product_variations : [];
+    const flatV = Array.isArray(p?.variations)
+      ? p.variations
+      : pv.flatMap(v => Array.isArray(v?.variations) ? v.variations : []);
+
+    // collect variant media
+    for (const v of flatV) {
+      const vLabel = s(v?.name ?? v?.value ?? '') || baseName;
+      const media = Array.isArray(v?.media) ? v.media : [];
+      for (const m of media) {
+        const url = m?.display_url || m?.url || m;
+        pushIf(images, url, vLabel, n(v?.id) ?? n(v?.variation_id));
+      }
+    }
+
+    const out = uniqByUrl(images);
+    res.set('Cache-Control', 'private, max-age=120');
+    return res.json({ id: pid, images: out, primary: out[0]?.url || prImage || null });
+  } catch (e) {
+    // don’t leak connector internals; just make it non-fatal for the PDP
+    return res.status(502).json({ error: 'connector_failed' });
+  }
+});
 
 
 /**
@@ -466,5 +551,7 @@ router.get('/:id/related', authOptional, async (req, res) => {
     return res.json([]);
   }
 });
+// GET /api/products/:id/media
+
 
 export default router;
