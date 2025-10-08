@@ -7,56 +7,8 @@ import "./home-hero-wall.css";
 import "./brand-rail.css";
 import "./product-sections.css";
 
-/** Prefer API banners; fall back to local only if API empty or image fails */
-const USE_PLACEHOLDERS = false;
 /** Read real brands from /home */
 const BRANDS_FROM_DB = true;
-
-/* -------- local assets (placeholders) for hero & wall ---------- */
-const globHero = import.meta.glob(
-  "../../assets/banners/*.{png,jpg,jpeg,gif,webp,svg}",
-  { eager: true }
-);
-const globWall = import.meta.glob(
-  "../../assets/wall/*.{png,jpg,jpeg,gif,webp,svg}",
-  { eager: true }
-);
-const cmp = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" }).compare;
-const HERO_LINKS = [
-  "/products?page=1",
-  "/products?category=sale&page=1",
-  "/products?brand=101&page=1",
-  "/products?category=new&page=1",
-];
-const WALL_LINKS = [
-  "/products?page=1",
-  "/products?category=deals&page=1",
-  "/products?category=new&page=1",
-  "/products?brand=102&page=1",
-];
-
-function basename(path) {
-  const f = path.split("/").pop() || "";
-  return f.replace(/\.[^.]+$/, "");
-}
-function toFakeFromGlob(globObj, labelPrefix, linkList) {
-  const keys = Object.keys(globObj).sort(cmp);
-  return keys.map((k, i) => {
-    const mod = globObj[k];
-    const url = (mod && (mod.default || mod)) || "";
-    return {
-      id: i + 1,
-      href: linkList[i % linkList.length] || "/products?page=1",
-      img: url,
-      alt: `${labelPrefix} - ${basename(k)}`,
-      isGif: /\.gif$/i.test(k),
-    };
-  });
-}
-const LOCAL_HERO = toFakeFromGlob(globHero, "Hero", HERO_LINKS);
-const LOCAL_WALL = toFakeFromGlob(globWall, "Wall", WALL_LINKS).slice(0, 4);
-const LOCAL_HERO_URLS = LOCAL_HERO.map((x) => x.img);
-const LOCAL_WALL_URLS = LOCAL_WALL.map((x) => x.img);
 
 /* -------- helpers -------- */
 const isUrl = (s) => typeof s === "string" && /^https?:\/\//i.test(s);
@@ -77,9 +29,9 @@ function readSelectedLocationId() {
 export default function Home() {
   const navigate = useNavigate();
 
-  // hero + wall (with placeholder switch)
-  const [hero, setHero] = useState(LOCAL_HERO);
-  const [wall, setWall] = useState(LOCAL_WALL);
+  // hero + wall (no placeholders; render only what API returns)
+  const [hero, setHero] = useState([]);
+  const [wall, setWall] = useState([]);
 
   // data sections
   const [brands, setBrands] = useState([]);
@@ -128,34 +80,29 @@ export default function Home() {
         });
         if (cancelled) return;
 
-        // hero + wall
-        if (USE_PLACEHOLDERS) {
-          setHero(LOCAL_HERO);
-          setWall(LOCAL_WALL);
-        } else {
-          const apiHero = (Array.isArray(data?.hero) ? data.hero : data?.banners || [])
-            .map((b) => ({
-              id: b.id,
-              href: b.href || "#",
-              alt: b.alt || b.alt_text || "Banner",
-              img: toSrc(b.img),
-              isGif: !!b.isGif,
-            }))
-            .filter((b) => b.img);
-          const apiWall = (Array.isArray(data?.wall) ? data.wall : [])
-            .map((b) => ({
-              id: b.id,
-              href: b.href || "#",
-              alt: b.alt || b.alt_text || "Banner",
-              img: toSrc(b.img),
-              isGif: !!b.isGif,
-            }))
-            .filter((b) => b.img)
-            .slice(0, 4);
+        // hero + wall (render exactly what API returns)
+        const apiHero = (Array.isArray(data?.hero) ? data.hero : data?.banners || [])
+          .map((b) => ({
+            id: b.id,
+            href: b.href || "#",
+            alt: b.alt || b.alt_text || "Banner",
+            img: toSrc(b.img),
+            isGif: !!b.isGif,
+          }))
+          .filter((b) => b.img);
 
-          setHero(apiHero.length ? apiHero : LOCAL_HERO);
-          setWall(apiWall.length ? apiWall : LOCAL_WALL);
-        }
+        const apiWall = (Array.isArray(data?.wall) ? data.wall : [])
+          .map((b) => ({
+            id: b.id,
+            href: b.href || "#",
+            alt: b.alt || b.alt_text || "Banner",
+            img: toSrc(b.img),
+            isGif: !!b.isGif,
+          }))
+          .filter((b) => b.img);
+
+        setHero(apiHero);
+        setWall(apiWall);
 
         // rails + brands
         if (BRANDS_FROM_DB) {
@@ -173,6 +120,7 @@ export default function Home() {
       } catch (err) {
         if (cancelled) return;
         console.error("Home fetch failed", err);
+        // leave hero/wall as empty arrays on error (no placeholders)
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -194,28 +142,23 @@ export default function Home() {
       {/* HERO (55vh) */}
       <HeroCarousel slides={hero} />
 
-      {/* WALL (4 stacked, each ~30vh) */}
-      <section className="home-wall">
-        {wall.map((b, i) => (
-          <BannerLink key={`wall-${b.id ?? i}`} href={b.href} className="wall-row">
-            <div className="wall-media">
-              <img
-                src={b.img}
-                alt={b.alt || ""}
-                loading="lazy"
-                decoding="async"
-                onError={(e) => {
-                  if (!USE_PLACEHOLDERS && !e.currentTarget.dataset.fallback) {
-                    e.currentTarget.dataset.fallback = "1";
-                    e.currentTarget.src =
-                      LOCAL_WALL_URLS[i] || LOCAL_WALL_URLS[0] || "";
-                  }
-                }}
-              />
-            </div>
-          </BannerLink>
-        ))}
-      </section>
+      {/* WALL: render exactly the count from API (no placeholders, no cap) */}
+      {wall.length > 0 && (
+        <section className="home-wall">
+          {wall.map((b, i) => (
+            <BannerLink key={`wall-${b.id ?? i}`} href={b.href} className="wall-row">
+              <div className="wall-media">
+                <img
+                  src={b.img}
+                  alt={b.alt || ""}
+                  loading="lazy"
+                  decoding="async"
+                />
+              </div>
+            </BannerLink>
+          ))}
+        </section>
+      )}
 
       {/* BRANDS */}
       <BrandsSection items={brands} loading={loading} />
@@ -286,13 +229,6 @@ function HeroCarousel({ slides = [] }) {
                 alt={s.alt || ""}
                 loading={i === 0 ? "eager" : "lazy"}
                 decoding="async"
-                onError={(e) => {
-                  if (!USE_PLACEHOLDERS && !e.currentTarget.dataset.fallback) {
-                    e.currentTarget.dataset.fallback = "1";
-                    e.currentTarget.src =
-                      LOCAL_HERO_URLS[i] || LOCAL_HERO_URLS[0] || "";
-                  }
-                }}
               />
             </div>
           </BannerLink>
@@ -599,3 +535,7 @@ function normalizeCard(p) {
     sub_category_name: p.sub_category_name,
   };
 }
+
+
+
+

@@ -30,34 +30,52 @@
   --sk-base: #f4f6f8; --sk-shine: #e9edf2;
 }
 
+/* ---------- Brand tiles: square, no shadow, type-only ---------- */
 .brand-item {
-  position: relative; flex: 0 0 auto;
-  height: 20vh; min-height: 150px; width: calc(20vh * 1.05);
-  border-radius: 16px; overflow: hidden; background: var(--brand-tile-bg);
-  border: 1px solid color-mix(in sRGB, var(--color-border) 65%, transparent);
-  box-shadow: 0 1px 6px rgb(0 0 0 / 10%); scroll-snap-align: start;
-  transform: translateZ(0); transition: transform 200ms ease, box-shadow 200ms ease;
+  position: relative;
+  flex: 0 0 auto;
+  /* square tile, responsive but never tiny */
+  width: clamp(120px, 14vw, 180px);
+  height: clamp(120px, 14vw, 180px);
+
+  border-radius: 14px;
+  overflow: hidden;
+
+  /* flat surface in both themes; no glow or shadow */
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  box-shadow: none !important;
+
+  scroll-snap-align: start;
+  transform: translateZ(0);
+  transition: transform 160ms ease;
 }
 
-/* subtle pattern/shine */
-.brand-item::before {
-  content: ""; position: absolute; inset: 0;
-  background:
-    radial-gradient(120% 60% at 100% 0%, rgba(255,255,255,.12), transparent 60%),
-    radial-gradient(60% 100% at 0% 100%, rgba(255,255,255,.06), transparent 70%);
-  mix-blend-mode: overlay; pointer-events: none;
-}
-
-/* label only – no images required */
+.brand-item::before { content: none; } /* kill the shine/pattern */
 .brand-img { display: none !important; }
+
+/* Centered, bold label that adapts to theme */
 .brand-label {
-  position: absolute; inset: auto 14px 12px 14px;
-  color: var(--brand-tile-fg); font-weight: 900; text-transform: uppercase; letter-spacing: .04em;
-  font-family: "Bebas Neue","Anton","Impact","Oswald",system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
-  font-size: clamp(1rem, 1.9vw, 1.5rem); text-shadow: 0 3px 14px rgba(0,0,0,.35); pointer-events: none;
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+
+  color: var(--color-text);
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+
+  /* strong condensed display fonts w/ fallbacks */
+  font-family: "Bebas Neue","Anton","Oswald","Impact",system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
+  font-size: clamp(0.95rem, 2.2vw, 1.6rem);
+
+  /* no text shadow; keep it clean */
+  text-shadow: none;
+  pointer-events: none;
 }
 
-.brand-item:hover { transform: translateY(-2px) scale(1.03); box-shadow: var(--brand-tile-glow); }
+.brand-item:hover { transform: translateY(-2px) scale(1.02); }
 
 /* Skeletons while loading — theme-aware */
 .brand-skel {
