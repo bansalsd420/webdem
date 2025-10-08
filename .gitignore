@@ -16,12 +16,7 @@ pnpm-debug.log*
 lerna-debug.log*
 *.log
 
-# --- env & secrets ---
-**/.envgit
-**/.env.local
-**/.env.*.local
-**/.envrc
-.env
+
 
 # --- editors/OS ---
 .vscode/
