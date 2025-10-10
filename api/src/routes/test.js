@@ -392,4 +392,60 @@ router.delete("/banners/:id", async (req, res) => {
   }
 });
 
+// ---------- broadcasts: list (active ones) ----------
+router.get('/broadcasts', async (req, res) => {
+  try {
+    const businessId = Number(req.query.business_id || BID || 0);
+    const [rows] = await pool.query(
+      `SELECT id, business_id, title, body, active, created_at, updated_at
+         FROM app_home_broadcasts
+        WHERE business_id = ?
+        ORDER BY created_at DESC`,
+      [businessId]
+    );
+    res.json(rows);
+  } catch (e) {
+    console.error('test broadcasts list error', e);
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
+// upsert broadcast
+router.post('/broadcasts', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const id = Number(body.id || 0);
+    const businessId = Number(body.business_id || BID || 0);
+    const title = body.title || null;
+    const text = body.body || null;
+    const active = normBool(body.active, 1);
+
+    if (id > 0) {
+      await pool.query(`UPDATE app_home_broadcasts SET title=?, body=?, active=? WHERE id=?`, [title, text, active, id]);
+      const [[row]] = await pool.query(`SELECT * FROM app_home_broadcasts WHERE id=?`, [id]);
+      return res.json(row);
+    }
+
+    const [ins] = await pool.query(`INSERT INTO app_home_broadcasts (business_id, title, body, active) VALUES (?, ?, ?, ?)`, [businessId, title, text, active]);
+    const [[row]] = await pool.query(`SELECT * FROM app_home_broadcasts WHERE id=?`, [ins.insertId]);
+    res.status(201).json(row);
+  } catch (e) {
+    console.error('test broadcasts upsert error', e);
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
+// delete broadcast
+router.delete('/broadcasts/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id || 0);
+    if (!id) return res.status(400).json({ error: 'invalid_id' });
+    await pool.query(`DELETE FROM app_home_broadcasts WHERE id=?`, [id]);
+    res.status(204).end();
+  } catch (e) {
+    console.error('test broadcasts delete error', e);
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
 export default router;

@@ -273,6 +273,23 @@ router.get("/", authOptional, async (req, res) => {
 
     const payload = { hero, wall, brands, trending, fresh, bestSellers };
 
+      // Add active broadcast (most recent) if available
+      try {
+        // q() returns the rows array directly. Don't destructure as [[bc]]
+        const bcRows = await q(
+          `SELECT id, title, body, active, created_at, updated_at
+             FROM app_home_broadcasts
+            WHERE business_id = ? AND active = 1
+            ORDER BY created_at DESC
+            LIMIT 1`,
+          [BUSINESS_ID]
+        );
+        if (bcRows && bcRows.length) payload.broadcast = bcRows[0];
+      } catch (e) {
+        // non-fatal
+        console.error('[home] broadcast fetch failed', e && e.message ? e.message : e);
+      }
+
     // Build a stable ETag from list lengths + last banner updates (fast to compute)
     const sig = JSON.stringify({
       h: hero.length, w: wall.length, b: brands.length,

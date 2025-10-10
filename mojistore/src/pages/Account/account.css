@@ -98,6 +98,16 @@
   padding: var(--space-3);
 }
 
+/* Make plain rounded buttons used in cards (e.g., Request a change) adapt to theme */
+.account-content .rounded-lg{
+  border-radius: var(--r-sm);
+  padding: .45rem .65rem;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+.account-content .rounded-lg:hover{ border-color: var(--color-neon); }
+
 /* ======================= Table polish ======================= */
 .account-content table{
   width: 100%;

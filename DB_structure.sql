@@ -461,6 +461,21 @@ CREATE TABLE `app_home_banners` (
   PRIMARY KEY (`id`),
   KEY `idx_slot_active_sort` (`slot`,`active`,`sort_order`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table for admin broadcasts shown on home modal
+DROP TABLE IF EXISTS `app_home_broadcasts`;
+CREATE TABLE `app_home_broadcasts` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `business_id` int NOT NULL DEFAULT 0,
+  `title` varchar(255) DEFAULT NULL,
+  `body` text,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_by` int DEFAULT NULL,
+  `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `business_id_idx` (`business_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --

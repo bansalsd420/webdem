@@ -1,9 +1,10 @@
 // Overview — compact sticky sidebar with computed stats (no API changes)
 import { useEffect, useState } from "react";
 import api from "../../api/axios";
-import { hasAuthCookie } from "../../utils/auth";
+import { useAuth } from "../../state/auth";
 
 export default function Overview() {
+  const auth = useAuth();
   const [me, setMe] = useState(null);
   const [stats, setStats] = useState({
     advance: null,
@@ -16,12 +17,15 @@ export default function Overview() {
     let alive = true;
     (async () => {
       try {
-        if (!hasAuthCookie()) return; // anonymous session: skip
-        const { data: meData } = await api.get("/account/me", { withCredentials: true, validateStatus: () => true });
+        // Use Auth context to avoid duplicate /account/me probes.
+        // If we don't have an authenticated user, skip the heavy account calls.
+  if (!auth?.isAuthenticated) return;
+
+        const meData = auth.user || null;
         if (!alive) return;
         setMe(meData || null);
 
-        // derive totals from existing endpmoints
+        // derive totals from existing endpoints
         const [invRes, payRes, ordRes] = await Promise.allSettled([
           api.get("/account/invoices"),
           api.get("/account/payments"),
@@ -30,12 +34,12 @@ export default function Overview() {
 
         const invoices = invRes.status === "fulfilled" && Array.isArray(invRes.value.data) ? invRes.value.data : [];
         const payments = payRes.status === "fulfilled" && Array.isArray(payRes.value.data) ? payRes.value.data : [];
-        const orders   = ordRes.status === "fulfilled" && Array.isArray(ordRes.value.data) ? ordRes.value.data : [];
+        const orders = ordRes.status === "fulfilled" && Array.isArray(ordRes.value.data) ? ordRes.value.data : [];
 
         const totalInvoice = invoices.reduce((s, r) => s + Number(r.final_total || 0), 0);
-        const totalPaid    = payments.reduce((s, r) => s + Number(r.amount || 0), 0);
-        const balanceDue   = Math.max(totalInvoice - totalPaid, 0);
-        const totalSales   = orders.reduce((s, r) => s + Number(r.final_total || 0), 0);
+        const totalPaid = payments.reduce((s, r) => s + Number(r.amount || 0), 0);
+        const balanceDue = Math.max(totalInvoice - totalPaid, 0);
+        const totalSales = orders.reduce((s, r) => s + Number(r.final_total || 0), 0);
 
         setStats({
           advance: meData?.advance_balance ?? null,
@@ -46,7 +50,7 @@ export default function Overview() {
       } catch {}
     })();
     return () => { alive = false; };
-  }, []);
+  }, [auth]);
 
   const initial =
     me?.business_name?.[0]?.toUpperCase?.() ||

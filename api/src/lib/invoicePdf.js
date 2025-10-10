@@ -1,12 +1,13 @@
 // api/src/lib/invoicePdf.js
-// HTML→PDF invoice styled to match backoffice output closely.
+// PDF invoice generator using PDFKit (no external binary)
 
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import puppeteer from 'puppeteer';
 import { format } from 'date-fns';
 import {pool} from '../db.js';
+import PDFDocument from 'pdfkit';
+import { spawn } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,16 +21,16 @@ const esc = (s) =>
   String(s ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
+    .replace(/>/g, '&gt;');
 
 function readLogoDataUrl() {
   try {
-    const logoPath = path.join(__dirname, 'images', 'image.jpg'); // your provided path
+    const logoPath = path.join(__dirname, 'images', 'image.jpg');
     const buf = fs.readFileSync(logoPath);
     const b64 = buf.toString('base64');
     return `data:image/jpeg;base64,${b64}`;
   } catch {
-    return ''; // silently skip if not present
+    return '';
   }
 }
 
@@ -40,8 +41,208 @@ function fmtQty(q) {
 }
 
 // -------------------------------------------------------------
-// HTML builder
+// PDF builder using PDFKit
 // -------------------------------------------------------------
+async function buildPdfBuffer({ H, items, pays, totalPaid, grand }) {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ size: 'A4', margin: 28 });
+      const chunks = [];
+      doc.on('data', (c) => chunks.push(c));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+
+      // Header: logo (if present) + business name
+      const logoData = readLogoDataUrl();
+      if (logoData) {
+        try {
+          const idx = logoData.indexOf('base64,');
+          if (idx !== -1) {
+            const b64 = logoData.slice(idx + 7);
+            const imgBuf = Buffer.from(b64, 'base64');
+            doc.image(imgBuf, 28, 28, { width: 60, height: 60 });
+          }
+        } catch (e) {
+          // ignore image errors
+        }
+      }
+
+      doc.fontSize(14).font('Helvetica-Bold').text(H.business_name || H.bl_name || 'MOJI WHOLESALE', 100, 36);
+      const bizAddr = [H.bl_address1, H.bl_city, H.bl_state, H.bl_country, H.bl_zip]
+        .filter(Boolean)
+        .join(', ');
+      if (bizAddr) doc.moveDown(0.4).fontSize(9).font('Helvetica').text(bizAddr, { align: 'left' });
+
+      // Invoice meta (right side)
+      const startY = 36;
+      doc.fontSize(18).font('Helvetica-Bold').text('INVOICE', { align: 'right' });
+      doc.moveDown(0.2);
+      doc.fontSize(10).font('Helvetica').text(`Invoice No: ${H.invoice_no || H.id}`, { align: 'right' });
+      doc.text(`Date: ${H.transaction_date ? format(new Date(H.transaction_date), 'yyyy-MM-dd HH:mm') : '—'}`, { align: 'right' });
+      doc.text(`Status: ${H.status || 'final'}`, { align: 'right' });
+
+      doc.moveDown(1);
+
+      // Customer block
+      doc.fontSize(10).font('Helvetica-Bold').text('Bill To:');
+      const customer = [H.customer_name, H.customer_email, H.customer_phone].filter(Boolean).join('\n');
+      doc.fontSize(10).font('Helvetica').text(customer || '—');
+
+      doc.moveDown(0.6);
+
+      // Items table header
+      const tableTop = doc.y;
+      const colX = { sku: 28, product: 100, qty: 370, unit: 430, sub: 500 };
+      doc.fontSize(9).font('Helvetica-Bold');
+      doc.text('SKU', colX.sku, tableTop);
+      doc.text('Product', colX.product, tableTop);
+      doc.text('Qty', colX.qty, tableTop, { width: 40, align: 'right' });
+      doc.text('Unit', colX.unit, tableTop, { width: 60, align: 'right' });
+      doc.text('Subtotal', colX.sub, tableTop, { width: 80, align: 'right' });
+
+      doc.moveTo(28, doc.y + 12).lineTo(560, doc.y + 12).strokeOpacity = 0.1;
+      // doc.stroke(); // strokeOpacity usage differs across versions; keep simple separator using moveDown
+      doc.moveDown(0.8);
+
+      doc.font('Helvetica').fontSize(9);
+      items.forEach((it) => {
+        const y = doc.y;
+        doc.text(it.sku || '', colX.sku, y);
+        doc.text(it.name || '', colX.product, y, { width: 260 });
+        doc.text(fmtQty(it.qty), colX.qty, y, { width: 40, align: 'right' });
+        doc.text(money(it.unit), colX.unit, y, { width: 60, align: 'right' });
+        doc.text(money(it.sub), colX.sub, y, { width: 80, align: 'right' });
+        doc.moveDown(0.8);
+      });
+
+      // Totals
+      const subtotal = items.reduce((a, it) => a + (Number(it.sub) || 0), 0);
+      const tax = Number(H.tax_amount || 0);
+      const ship = Number(H.shipping_charges || 0);
+      const disc = Number(H.discount_amount || 0);
+      const total = Number(H.final_total || 0) || subtotal + tax + ship - disc;
+
+      doc.moveDown(0.6);
+      const rightX = 520;
+      doc.fontSize(10).font('Helvetica');
+      doc.text('Subtotal:', rightX - 80, doc.y, { width: 80, align: 'right' });
+      doc.text(money(subtotal), rightX, doc.y, { width: 80, align: 'right' });
+      if (disc) {
+        doc.moveDown(0.3);
+        doc.text('Discount:', rightX - 80, doc.y, { width: 80, align: 'right' });
+        doc.text('-' + money(disc), rightX, doc.y, { width: 80, align: 'right' });
+      }
+      if (tax) {
+        doc.moveDown(0.3);
+        doc.text('Tax:', rightX - 80, doc.y, { width: 80, align: 'right' });
+        doc.text(money(tax), rightX, doc.y, { width: 80, align: 'right' });
+      }
+      if (ship) {
+        doc.moveDown(0.3);
+        doc.text('Shipping:', rightX - 80, doc.y, { width: 80, align: 'right' });
+        doc.text(money(ship), rightX, doc.y, { width: 80, align: 'right' });
+      }
+
+      doc.moveDown(0.5);
+      doc.font('Helvetica-Bold').text('Total:', rightX - 80, doc.y, { width: 80, align: 'right' });
+      doc.text(money(total), rightX, doc.y, { width: 80, align: 'right' });
+
+      doc.moveDown(1);
+      // Payments
+      if (pays?.length) {
+        doc.font('Helvetica-Bold').fontSize(10).text('Payments');
+        pays.forEach((p) => {
+          doc.font('Helvetica').fontSize(9).text(`${p.method || 'cash'} ${money(p.amount)} ${p.paid_on ? format(new Date(p.paid_on), 'yyyy-MM-dd') : ''}`);
+        });
+      }
+
+      // Footer
+      doc.moveDown(1);
+      doc.fontSize(9).font('Helvetica').text('Notes / Terms', { underline: true });
+      doc.moveDown(0.2);
+      doc.font('Helvetica').fontSize(8).text('Outside ALABAMA Customer is responsible for payment of all applicable Local/State/Federal Taxes for their Respective State.');
+      doc.moveDown(0.2);
+      doc.text('*Note: There will be a $30.00 return check fee for all NSF checks');
+
+      doc.end();
+    } catch (err) {
+      return reject(err);
+    }
+  });
+}
+
+// Optional: run wkhtmltopdf (HTML renderer) when PIXEL_PERFECT output is required.
+// Set env PDF_RENDERER='wkhtmltopdf' and optionally WKHTMLTOPDF_PATH to use this path.
+async function renderWithWkhtmltopdf(html) {
+  const WK = process.env.WKHTMLTOPDF_PATH || 'wkhtmltopdf';
+  const baseArgs = [
+    '--enable-local-file-access',
+    '--page-size', 'A4',
+    '--print-media-type',
+    '--margin-top', '16mm',
+    '--margin-bottom', '16mm',
+    '--margin-left', '14mm',
+    '--margin-right', '12mm',
+    '-', '-'
+  ];
+
+  const run = (useXvfb = false) => new Promise((resolve, reject) => {
+    const cmd = useXvfb ? 'xvfb-run' : WK;
+    const args = useXvfb ? ['-a', WK, ...baseArgs] : baseArgs;
+
+    const env = { ...process.env };
+    try {
+      const rt = process.env.XDG_RUNTIME_DIR || `/tmp/xdgrun_${process.pid}`;
+      env.XDG_RUNTIME_DIR = rt;
+      try { fs.mkdirSync(rt, { mode: 0o700, recursive: true }); } catch (e) { /* ignore */ }
+    } catch (e) { /* ignore */ }
+
+    let child;
+    try {
+      child = spawn(cmd, args, { stdio: ['pipe','pipe','pipe'], env });
+    } catch (err) {
+      return reject(new Error('wkhtmltopdf spawn failed: ' + err.message));
+    }
+
+    const out = [];
+    const errOut = [];
+    child.stdout.on('data', (d) => out.push(d));
+    child.stderr.on('data', (d) => errOut.push(d));
+    child.on('error', (e) => reject(new Error('wkhtmltopdf error: ' + (e && e.message ? e.message : String(e)))));
+    child.on('close', (code) => {
+      const buf = Buffer.concat(out);
+      const stderr = Buffer.concat(errOut).toString('utf8');
+      if (code !== 0) return reject(new Error('wkhtmltopdf exited ' + code + ': ' + stderr));
+      return resolve({ buffer: buf, stderr });
+    });
+
+    child.stdin.write(html);
+    child.stdin.end();
+  });
+
+  // try normal first, then xvfb-run if we detect issues
+  try {
+    let attempt = await run(false).catch(e => ({ err: e }));
+    if (attempt && attempt.err) {
+      const se = String(attempt.err && attempt.err.message ? attempt.err.message : attempt.err || '');
+      if (/QPainter::begin\(\): Returned false|runtime directory|XDG_RUNTIME_DIR|Returned false|HostNotFoundError|did not produce a valid PDF/i.test(se)) {
+        attempt = await run(true);
+      } else {
+        throw attempt.err;
+      }
+    }
+    const { buffer, stderr } = attempt;
+    if (!buffer || buffer.length < 4 || buffer.slice(0,4).toString() !== '%PDF') {
+      const sample = buffer ? buffer.slice(0,512).toString('utf8').replace(/\s+/g,' ').slice(0,400) : '<no output>';
+      throw new Error('wkhtmltopdf did not produce a valid PDF. stderr: ' + (stderr || '<none>') + ' sample: ' + sample);
+    }
+    return buffer;
+  } catch (err) {
+    // rethrow so caller can fallback to pdfkit
+    throw err;
+  }
+}
+
+// Recreate the original HTML builder for pixel-perfect wkhtmltopdf rendering
 function buildHtml({ H, items, pays, totalPaid, grand }) {
   const isPaid =
     Math.round((totalPaid || 0) * 100) >= Math.round(Number(grand || 0) * 100);
@@ -61,7 +262,6 @@ function buildHtml({ H, items, pays, totalPaid, grand }) {
   const when = H.transaction_date
     ? format(new Date(H.transaction_date), 'yyyy-MM-dd HH:mm')
     : '—';
-  // Schema has no due_date; render placeholder dash
   const dueBy = '—';
 
   const bizLines = [
@@ -91,17 +291,10 @@ function buildHtml({ H, items, pays, totalPaid, grand }) {
 <meta charset="utf-8" />
 <title>Invoice ${esc(H.invoice_no || H.id)}</title>
 <style>
-  /* Page + base */
   @page { size: A4; margin: 16mm 12mm 16mm 14mm; }
   html, body { height: 100%; }
-  body {
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, "Helvetica Neue", sans-serif;
-    color: #0f172a;
-    font-size: 12px; line-height: 1.35;
-  }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, "Helvetica Neue", sans-serif; color: #0f172a; font-size: 12px; line-height: 1.35; }
   .page { width: 100%; }
-
-  /* Utilities */
   .muted { color:#475569; }
   .soft { color:#64748b; }
   .bold { font-weight: 700; }
@@ -115,88 +308,44 @@ function buildHtml({ H, items, pays, totalPaid, grand }) {
   .mt-12 { margin-top: 12px; }
   .mt-16 { margin-top: 16px; }
   .mb-8 { margin-bottom: 8px; }
-  .chip {
-    display:inline-block; padding: 2px 8px; border-radius: 999px;
-    border:1px solid #e5e7eb; background: #f8fafc; font-size: 10px; color:#111827;
-  }
-  .pill {
-    display:inline-block; padding: 4px 10px; border-radius: 8px;
-    color:#fff; font-weight:700; font-size: 10.5px;
-  }
+  .chip { display:inline-block; padding: 2px 8px; border-radius: 999px; border:1px solid #e5e7eb; background: #f8fafc; font-size: 10px; color:#111827; }
+  .pill { display:inline-block; padding: 4px 10px; border-radius: 8px; color:#fff; font-weight:700; font-size: 10.5px; }
   .paid { background:#16a34a; }
   .due  { background:#ea580c; }
-
-  /* Header */
-  .head {
-    display: grid; grid-template-columns: 1fr 280px; column-gap: 18px;
-    align-items: start;
-  }
+  .head { display: grid; grid-template-columns: 1fr 280px; column-gap: 18px; align-items: start; }
   .head-left { display:grid; grid-template-columns: 60px 1fr; column-gap: 10px; }
-  .logo-wrap {
-    width: 60px; height: 60px; border-radius: 6px; overflow:hidden;
-    border:1px solid #e5e7eb; background:#fff; display:flex; align-items:center; justify-content:center;
-  }
+  .logo-wrap { width: 60px; height: 60px; border-radius: 6px; overflow:hidden; border:1px solid #e5e7eb; background:#fff; display:flex; align-items:center; justify-content:center; }
   .logo-wrap img { width: 100%; height: 100%; object-fit: cover; }
   .biz-name { font-size: 12.5px; font-weight: 800; letter-spacing: 0.15px; margin:0 0 2px 0; }
   .biz-addr { margin:0; font-size: 11px; color:#334155; }
-
   .head-right { text-align:right; }
   .inv-title { margin:0; font-size: 18px; font-weight: 800; color:#0b1220; letter-spacing: 0.2px; }
   .kv { margin-top: 8px; font-size: 11px; color:#475569; }
   .kv .row { justify-content: space-between; }
   .kv .k { padding: 2px 6px; }
   .kv .v { min-width: 110px; text-align:right; font-weight:700; color:#0f172a; }
-
   .customer-box { margin-top: 8px; text-align:right; }
   .customer-label { margin:0 0 4px 0; font-size: 10px; color:#64748b; font-weight:700; }
   .customer-lines { margin:0; color:#0f172a; }
-
-  /* Meta band (like backoffice second row) */
-  .metagrid {
-    margin-top: 12px;
-    display:grid;
-    grid-template-columns: 1.2fr 0.9fr 0.9fr 0.9fr 1.1fr;
-    column-gap: 8px;
-    font-size: 11px;
-    color:#0f172a;
-  }
+  .metagrid { margin-top: 12px; display:grid; grid-template-columns: 1.2fr 0.9fr 0.9fr 0.9fr 1.1fr; column-gap: 8px; font-size: 11px; color:#0f172a; }
   .metagrid .cell { border:1px solid #e2e8f0; border-radius: 6px; padding: 6px 8px; }
   .metagrid .lab { color:#64748b; font-weight:700; margin-bottom: 2px; }
   .metagrid .val { color:#0f172a; }
-
-  /* Table */
   table { width:100%; border-collapse: collapse; margin-top: 12px; }
   thead { display: table-header-group; }
   th, td { font-size: 11.2px; padding: 8px 8px; }
-  thead th {
-    background:#f5f7fb;
-    border:1px solid #e2e8f0;
-    text-align:left; color:#0f172a; font-weight:700;
-  }
+  thead th { background:#f5f7fb; border:1px solid #e2e8f0; text-align:left; color:#0f172a; font-weight:700; }
   tbody td { border:1px solid #e2e8f0; color:#0f172a; }
   th.qty, td.qty, th.price, td.price, th.sub, td.sub { text-align: right; }
-
-  /* Split: payments + totals */
-  .split {
-    margin-top: 12px;
-    display:grid; grid-template-columns: 1fr 240px; column-gap: 16px;
-  }
+  .split { margin-top: 12px; display:grid; grid-template-columns: 1fr 240px; column-gap: 16px; }
   .payments { font-size: 11.5px; color:#0f172a; }
-  .totals {
-    border:1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px;
-    font-size: 11.2px; color:#334155;
-  }
+  .totals { border:1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; font-size: 11.2px; color:#334155; }
   .totals .row { display:grid; grid-template-columns: 1fr 110px; padding: 4px 0; }
   .totals .v { text-align:right; color:#0f172a; }
   .totals .hr { height:1px; background:#e2e8f0; margin:6px 0; }
   .totals .total .k { font-weight:800; color:#0f172a; }
   .totals .total .v { font-weight:800; color:#0f172a; }
-
-  /* Footer notes */
-  .footer {
-    margin-top: 14px; color:#334155; font-size: 11.2px;
-    display:grid; grid-template-columns: 1fr 1fr; column-gap: 24px;
-  }
+  .footer { margin-top: 14px; color:#334155; font-size: 11.2px; display:grid; grid-template-columns: 1fr 1fr; column-gap: 24px; }
   .footer h4 { margin:0 0 6px 0; font-size: 11.2px; color:#0f172a; }
 </style>
 </head>
@@ -324,6 +473,7 @@ function buildHtml({ H, items, pays, totalPaid, grand }) {
 </html>`;
 }
 
+// Now modify main stream function to try wkhtmltopdf when requested
 // -------------------------------------------------------------
 // Main: query + render + stream
 // -------------------------------------------------------------
@@ -404,32 +554,23 @@ export async function streamInvoicePdfHtml({
     );
     const grand = Number(H.final_total || 0);
 
-    // 4) HTML
-    const html = buildHtml({ H, items, pays, totalPaid, grand });
-
-    // 5) Render
-    const launchOps = {
-      headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    };
-    if (process.env.PUPPETEER_EXECUTABLE_PATH) {
-      launchOps.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+    // 4) Build PDF buffer using PDFKit
+    let pdf;
+    if (process.env.PDF_RENDERER === 'wkhtmltopdf') {
+      try {
+        const html = buildHtml({ H, items, pays, totalPaid, grand });
+        pdf = await renderWithWkhtmltopdf(html);
+      } catch (wkErr) {
+        console.error('wkhtmltopdf attempt failed, falling back to pdfkit:', wkErr && wkErr.message ? wkErr.message : wkErr);
+        pdf = await buildPdfBuffer({ H, items, pays, totalPaid, grand });
+      }
+    } else {
+      pdf = await buildPdfBuffer({ H, items, pays, totalPaid, grand });
     }
-    const browser = await puppeteer.launch(launchOps);
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'networkidle0' });
 
-    const pdf = await page.pdf({
-      format: 'A4',
-      printBackground: true,
-      margin: { top: '16mm', bottom: '16mm', left: '14mm', right: '12mm' },
-      preferCSSPageSize: true,
-    });
-
-    await browser.close();
-
-    // 6) stream
+    // 5) stream
     res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('X-PDF-Renderer', 'pdfkit');
     res.setHeader(
       'Content-Disposition',
       `${disposition}; filename="invoice-${H.invoice_no || H.id}.pdf"`

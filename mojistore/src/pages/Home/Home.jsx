@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import api from "../../api/axios.js";
 import ProductCard from "../../components/ProductCard/ProductCard.jsx";
+import { AgeModal, BroadcastModal } from '../../components/HomeModals.jsx';
 import "./home-hero-wall.css";
 import "./brand-rail.css";
 import "./product-sections.css";
@@ -39,6 +40,10 @@ export default function Home() {
   const [fresh, setFresh] = useState([]);
   const [best, setBest] = useState([]);
   const [loading, setLoading] = useState(true);
+  // modal state
+  const [showAge, setShowAge] = useState(false);
+  const [showBroadcast, setShowBroadcast] = useState(false);
+  const [broadcastData, setBroadcastData] = useState(null);
 
   // refetch when location changes
   const [locVersion, setLocVersion] = useState(0);
@@ -101,7 +106,7 @@ export default function Home() {
           }))
           .filter((b) => b.img);
 
-        setHero(apiHero);
+  setHero(apiHero);
         setWall(apiWall);
 
         // rails + brands
@@ -117,6 +122,11 @@ export default function Home() {
         setTrending(Array.isArray(data?.trending) ? data.trending : []);
         setFresh(Array.isArray(data?.fresh) ? data.fresh : []);
         setBest(Array.isArray(data?.bestSellers) ? data.bestSellers : []);
+
+        // handle broadcast modal
+        if (data?.broadcast) {
+          setBroadcastData(data.broadcast);
+        }
       } catch (err) {
         if (cancelled) return;
         console.error("Home fetch failed", err);
@@ -131,6 +141,36 @@ export default function Home() {
     };
   }, [locVersion]);
 
+  // show modals once per path (store keys include pathname)
+  useEffect(() => {
+  const pathKeyAge = `ms_seen_age:${window.location.pathname}`;
+  const pathKeyBroadcast = `ms_seen_broadcast:${window.location.pathname}`;
+  const seenAge = sessionStorage.getItem(pathKeyAge);
+  const seenBroadcast = sessionStorage.getItem(pathKeyBroadcast);
+  if (!seenAge) setShowAge(true);
+  // broadcast will show only after age accepted — handled in accept handler
+  if (!seenBroadcast && broadcastData) setShowBroadcast(true);
+  }, [broadcastData]);
+
+  const companyName = (import.meta.env.VITE_MOJISTORE_NAME || 'mojistore');
+
+  const onAcceptAge = () => {
+  const pathKeyAge = `ms_seen_age:${window.location.pathname}`;
+  sessionStorage.setItem(pathKeyAge, '1');
+    setShowAge(false);
+    // after accepting age, check broadcast
+    if (broadcastData) {
+  const pathKeyBroadcast = `ms_seen_broadcast:${window.location.pathname}`;
+  if (!sessionStorage.getItem(pathKeyBroadcast)) setShowBroadcast(true);
+    }
+  };
+
+  const closeBroadcast = () => {
+  const pathKeyBroadcast = `ms_seen_broadcast:${window.location.pathname}`;
+  sessionStorage.setItem(pathKeyBroadcast, '1');
+    setShowBroadcast(false);
+  };
+
   // Discovery-only click → Products search (so price/stock show there)
   const goToProductsFor = (p) => {
     const q = p?.name || p?.sku || "";
@@ -141,6 +181,10 @@ export default function Home() {
     <main className="home">
       {/* HERO (55vh) */}
       <HeroCarousel slides={hero} />
+
+        {/* Global modals */}
+        <AgeModal companyName={companyName} visible={showAge} onAccept={onAcceptAge} onUnderage={() => { setShowAge(false); }} />
+        <BroadcastModal broadcast={broadcastData} visible={showBroadcast && !showAge} onClose={closeBroadcast} />
 
       {/* WALL: render exactly the count from API (no placeholders, no cap) */}
       {wall.length > 0 && (

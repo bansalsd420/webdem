@@ -172,7 +172,7 @@ export default function Profile() {
             <label className="grid gap-1">
               <span className="text-xs opacity-70">Name</span>
               <input
-                className="rounded-lg px-3 py-2 bg-white/10 border border-white/15"
+                className="tb-input"
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                 placeholder="Your name"
@@ -181,7 +181,7 @@ export default function Profile() {
             <label className="grid gap-1">
               <span className="text-xs opacity-70">Company</span>
               <input
-                className="rounded-lg px-3 py-2 bg-white/10 border border-white/15"
+                className="tb-input"
                 value={form.company}
                 onChange={(e) => setForm((f) => ({ ...f, company: e.target.value }))}
                 placeholder="Company name"
@@ -190,7 +190,7 @@ export default function Profile() {
             <label className="grid gap-1">
               <span className="text-xs opacity-70">Phone</span>
               <input
-                className="rounded-lg px-3 py-2 bg-white/10 border border-white/15"
+                className="tb-input"
                 value={form.phone}
                 onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
                 placeholder="Phone number"

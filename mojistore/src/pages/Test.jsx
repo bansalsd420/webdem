@@ -96,12 +96,23 @@ export default function TestPanel() {
   const [editing, setEditing] = useState(null);
   const [savingBan, setSavingBan] = useState(false);
   const [reordering, setReordering] = useState(false);
+  // Broadcasts
+  const [broadcasts, setBroadcasts] = useState([]);
+  const [editingBroadcast, setEditingBroadcast] = useState(null);
+  const [savingBroadcast, setSavingBroadcast] = useState(false);
 
   const loadBanners = async (s = slot) => {
     const { data } = await axios.get("/test/banners", { withCredentials: true, params: { slot: s } });
     setBanners(Array.isArray(data) ? data : []);
   };
+  const loadBroadcasts = async () => {
+    try {
+      const { data } = await axios.get('/test/broadcasts', { withCredentials: true });
+      setBroadcasts(Array.isArray(data) ? data : []);
+    } catch (e) { setBroadcasts([]); }
+  };
   useEffect(() => { loadBanners(slot); }, [slot]);
+  useEffect(() => { loadBroadcasts(); }, []);
 
   const newBannerDefaults = () => ({
     id: 0,
@@ -449,6 +460,43 @@ export default function TestPanel() {
             )}
           </div>
         </div>
+      </section>
+
+      {/* Broadcasts */}
+      <section className="panel">
+        <div className="flex" style={{justifyContent:'space-between', alignItems:'center'}}>
+          <h2 className="text-lg font-semibold">Home Broadcasts</h2>
+          <div>
+            <button className="btn" onClick={() => setEditingBroadcast({ id:0, title:'', body:'', active:1 })}>New broadcast</button>
+          </div>
+        </div>
+        <div style={{marginTop:12}}>
+          {broadcasts.length === 0 ? <div style={{color:'#777'}}>No broadcasts</div> : broadcasts.map(b => (
+            <div key={b.id} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:8, border:'1px solid #eee', borderRadius:8, marginTop:8}}>
+              <div>
+                <div style={{fontWeight:700}}>{b.title || '(no title)'}</div>
+                <div style={{color:'#555'}} dangerouslySetInnerHTML={{__html: (b.body || '').slice(0,400)}} />
+              </div>
+              <div style={{display:'flex', gap:8}}>
+                <button className="btn light" onClick={() => setEditingBroadcast(b)}>Edit</button>
+                <button className="btn" onClick={async ()=>{ if(!confirm('Delete?')) return; await axios.delete(`/test/broadcasts/${b.id}`, { withCredentials:true }); await loadBroadcasts(); }}>Delete</button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {editingBroadcast && (
+          <div style={{marginTop:12, background:'#fff', padding:12, border:'1px solid #eee'}}>
+            <div style={{marginBottom:8}}><input placeholder="Title" value={editingBroadcast.title} onChange={(e)=>setEditingBroadcast({...editingBroadcast, title:e.target.value})} style={{width:'100%', padding:8, border:'1px solid #ddd'}}/></div>
+            <div style={{marginBottom:8}}><textarea placeholder="Body (HTML allowed)" value={editingBroadcast.body} onChange={(e)=>setEditingBroadcast({...editingBroadcast, body:e.target.value})} style={{width:'100%', minHeight:120, padding:8, border:'1px solid #ddd'}}/></div>
+            <div style={{display:'flex', gap:8, justifyContent:'flex-end'}}>
+              <button className="btn light" onClick={()=>setEditingBroadcast(null)}>Cancel</button>
+              <button className="btn" onClick={async ()=>{
+                try { setSavingBroadcast(true); await axios.post('/test/broadcasts', editingBroadcast, { withCredentials:true }); setEditingBroadcast(null); await loadBroadcasts(); } catch(e){ alert('Save failed: '+(e?.response?.data?.error||e.message)); } finally { setSavingBroadcast(false); }
+              }}>{savingBroadcast ? 'Saving…' : 'Save'}</button>
+            </div>
+          </div>
+        )}
       </section>
     </div>
   );

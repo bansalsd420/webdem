@@ -38,12 +38,21 @@ Admin / operator options (simple language)
   - Set `ADMIN_COMMANDS_FILE` env to a path (e.g. `admin_cache_commands.json`) and restart server.
   - Write commands there (`flush` array of keys; `stats: true`) and the server will process them and (for `stats`) write `admin_cache_stats.json` next to it.
 
+Broadcasts & Home modal behaviour
+- The Home payload (`GET /api/home`) can include a `broadcast` object when an active `app_home_broadcasts` row exists. The frontend will show a Broadcast modal (after the Age Verification modal) when `broadcast` is present in the payload.
+- The Age Verification modal and Broadcast modal are per-tab only: the frontend uses `sessionStorage` to persist seen flags so the modals show once per tab (they reappear on a new tab or private window).
+- Manage broadcasts in development via the Test UI (`/__test`) or the dev endpoints under `/api/test/broadcasts`. Apply the SQL migration `api/migrations/20251010_create_app_home_broadcasts.sql` to enable the table in your DB.
+
 Key code locations
 - Server entry: `api/src/server.js`
 - Cache & invalidation: `api/src/lib/cache.js`
 - File admin helper: `api/src/lib/fileAdmin.js`
 - ERP connector: `api/src/lib/erp.js`
 - Product routes: `api/src/routes/products.js`
+
+Additional routes of note
+- Home route: `api/src/routes/home.js` (aggregates banners, brand logos, rails and includes an optional `broadcast` field in the payload)
+- Dev/test endpoints: `api/src/routes/test.js` (contains broadcast management endpoints under `/api/test/broadcasts`)
 
 Common flows (short)
 - Listing: frontend → `GET /api/products` (supports page/perPage, q, category, brand, locationId). Non-`inStock` pages are cached per-page.

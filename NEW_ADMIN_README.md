@@ -37,6 +37,7 @@ Developer Test UI (quick)
   - Inspect and edit global category visibility (hide categories from guests or all users).
   - Apply per-contact category hides (hide categories only for a specific contact/customer).
   - Manage home banners (list, create, reorder, delete).
+  - Manage home broadcast messages (dev panel `/__test`) — these can be used to display sitewide notices on the home page via the admin Test panel or directly via DB table `app_home_broadcasts`.
   - Flush caches and fetch cache stats (admin operations).
 
 Admin cache controls (what you can do)
@@ -85,6 +86,19 @@ Where to look when things go wrong
 - Backend logs: api logs are printed to the console when running `npm run dev`.
 - Look at api/src/lib/cache.js and api/src/lib/categoryVisibility.js for caching and visibility logic.
 - If you change DB tables directly, flush the visibility cache or restart the server so changes are picked up.
+
+Broadcasts and Home modals (new)
+- Database: a new table `app_home_broadcasts` holds admin messages. A migration file was added: `api/migrations/20251010_create_app_home_broadcasts.sql` — run this against your MySQL instance to create the table.
+- API: the backend includes dev-only endpoints to manage broadcasts: `GET /api/test/broadcasts`, `POST /api/test/broadcasts`, `DELETE /api/test/broadcasts/:id`. Use the frontend Test page (`/__test`) to exercise these safely in dev.
+- Frontend: the Home page fetches `/api/home` and will display an Age Verification modal on first tab open (uses `sessionStorage` key) and then, if `broadcast` exists in the `/api/home` payload and is active, will show the Broadcast modal. The company name shown in the Age modal comes from the Vite env var `VITE_MOJISTORE_NAME` (set in `mojistore/.env` or `.env.local`).
+
+Applying the migration (example PowerShell)
+  # from a shell that has mysql client installed, or use your DB GUI tool
+  mysql -u youruser -p yourdb < api/migrations/20251010_create_app_home_broadcasts.sql
+
+Using the Test UI to create a broadcast (PowerShell example)
+  $body = @{ business_id = 1; title = 'Site notice'; body = 'We are updating prices tonight'; active = $true } | ConvertTo-Json
+  Invoke-RestMethod -Uri 'http://localhost:4000/api/test/broadcasts' -Method Post -Body $body -ContentType 'application/json'
 
 Contact and next steps
 - If you want UX improvements (confirmation modal when applying recursive hides, toasts, server-side search for large category sets), open an issue or ask here and someone will implement it.

@@ -1,0 +1,92 @@
+/* Polished modal styles for Home modals (recreated) */
+:root{
+  --ms-bg: #ffffff;
+  --ms-overlay: rgba(0,0,0,0.6);
+  --ms-radius: 8px;
+  --ms-ink: #0b1220;
+  --ms-muted: #475569;
+  --ms-primary: #111827;
+  --ms-accent: #c92b2b; /* deep red for buttons */
+  --ms-accent-2: #ef4444; /* brighter accent */
+}
+
+.ms-modal-overlay{
+  position:fixed;
+  inset:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  z-index:9999;
+  background:var(--ms-overlay);
+  padding:28px;
+  -webkit-font-smoothing:antialiased;
+}
+
+.ms-modal{
+  width:min(660px, 94%);
+  background:var(--ms-bg);
+  border-radius:12px;
+  box-shadow:0 30px 60px rgba(2,6,23,0.55);
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+  border:1px solid rgba(11,17,32,0.06);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+}
+
+.ms-modal-header{
+  padding:28px 32px 12px 32px;
+  border-bottom:1px solid rgba(11,17,32,0.04);
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:10px;
+}
+
+.ms-modal-brand{font-weight:800;color:var(--ms-primary);font-size:22px;letter-spacing:0.3px}
+.ms-modal-brand img{max-height:48px;display:block}
+.ms-modal-logo{height:56px;object-fit:contain;display:block;margin-bottom:4px}
+.ms-modal-title{margin:0;color:var(--ms-ink);font-size:18px;font-weight:700}
+
+.ms-modal-body{
+  padding:18px 36px 18px 36px;
+  color:var(--ms-muted);
+  line-height:1.6;
+  font-size:15px;
+  text-align:center;
+}
+
+.ms-broadcast-body{color:var(--ms-ink);font-size:15px;text-align:left}
+
+.ms-modal-divider{height:1px;background:linear-gradient(90deg, rgba(0,0,0,0.04), rgba(0,0,0,0.02));width:84%;margin:6px auto 0}
+
+.ms-modal-footer{
+  display:flex;
+  gap:18px;
+  justify-content:center;
+  padding:20px 28px 28px 28px;
+  border-top:1px solid rgba(11,17,32,0.03);
+  background:linear-gradient(180deg, rgba(255,255,255,0.01), transparent);
+}
+
+.ms-btn{border-radius:8px;padding:12px 18px;border:0;font-weight:800;cursor:pointer;font-size:14px;letter-spacing:1px}
+.ms-btn-ghost{background:transparent;color:var(--ms-primary);border:1px solid rgba(11,17,32,0.06);padding:10px 16px}
+.ms-btn-primary{background:var(--ms-accent);color:#fff;box-shadow:0 8px 30px rgba(201,43,43,0.18);min-width:150px}
+.ms-btn-primary:hover{filter:brightness(.98)}
+.ms-btn-ghost:hover{background:rgba(0,0,0,0.02)}
+
+.ms-btn-secondary{background:var(--ms-accent-2);color:#fff;min-width:150px;box-shadow:0 8px 28px rgba(239,68,68,0.12)}
+
+/* Responsiveness */
+@media (max-width:520px){
+  .ms-modal{width:94%;}
+  .ms-modal-header{padding:18px}
+  .ms-modal-body{padding:14px}
+  .ms-modal-footer{padding:12px}
+  .ms-modal-brand{font-size:18px}
+  .ms-modal-title{font-size:16px}
+}
+
+@media (prefers-reduced-motion: no-preference){
+  .ms-modal{transform:translateY(0);transition:transform .28s cubic-bezier(.2,.9,.3,1),opacity .2s}
+}

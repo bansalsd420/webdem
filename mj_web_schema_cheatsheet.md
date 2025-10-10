@@ -18,6 +18,8 @@ Core app tables
 - `app_wishlists(user_id, product_id)`
 
 - `app_home_banners` — hero/wall banners for home UI (slot, file_name, href, active)
+ - `app_home_broadcasts` — admin broadcast messages shown on home (business_id, title, body, active, created_at)
+	- NOTE: table `app_home_broadcasts` added (migration: `api/migrations/20251010_create_app_home_broadcasts.sql`). The backend includes the most recent active broadcast in `/api/home` as `broadcast`.
 
 Important UltimatePOS tables referenced by APIs
 - `products(id, business_id, name, sku, image, category_id, sub_category_id, brand_id, is_inactive, not_for_selling)`
@@ -35,3 +37,9 @@ Notes for developers
 If you need a full schema dump, run the DB schema export and I can normalize it into a readable reference.
 ```
 - `variation_id` → `variations(id)`
+`variation_id` → `variations(id)`
+
+Developer notes (broadcasts & home modals)
+- The `app_home_broadcasts` table stores short site-wide messages. Fields: `id`, `business_id`, `title`, `body`, `active` (boolean), `created_at`.
+- The frontend shows two transient modals on first visit per-tab: an Age Verification modal and (if present) the Broadcast modal. The frontend stores per-tab seen flags in `sessionStorage` so the modals reappear when a new tab is opened but not when the same tab is reloaded.
+- Admin/dev can manage broadcasts via the dev-only endpoints under `/api/test/broadcasts` (GET/POST/DELETE). These endpoints are intended for local/dev use only and not exposed in production.

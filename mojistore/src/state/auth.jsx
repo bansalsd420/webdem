@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import api from '../api/axios.js';
+import { hasAuthCookie } from '../utils/auth';
 
 const AuthCtx = createContext(null);
 
@@ -14,6 +15,17 @@ export function AuthProvider({ children }) {
     setLoading(true);
     setError(null);
     try {
+      // If the browser has no auth cookie, skip the /account/me probe to avoid
+      // noisy 401 responses in the devtools network/console. The server will
+      // still return 401 when requested without a token; this short-circuit
+      // keeps anonymous sessions quiet and reduces unnecessary traffic.
+      if (typeof document !== 'undefined' && !hasAuthCookie()) {
+        setUser(null);
+        prevUserRef.current = null;
+        setLoading(false);
+        return;
+      }
+
       const res = await api.get('/account/me', {
         withCredentials: true,
         validateStatus: () => true
