@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { authOptional } from '../middleware/auth.js';
 import { erpGetAny, listFrom, totalFrom, qtyAtLocation, n, s, biz, resolveNumericContactId } from '../lib/erp.js';
+import cache from '../lib/cache.js';
+import catVis from '../lib/categoryVisibility.js';
 
 const router = Router();
 
@@ -132,16 +134,70 @@ router.get('/', authOptional, async (req, res) => {
       include_location_details: locationId ? 1 : undefined,
     };
 
-    const { data: baseData } = await erpGetAny(
-      // Try new endpoint first, then fallbacks
-      ['/new_product', '/product', '/productapi', '/products'],
-      { query: baseQuery }
-    );
-    const baseList = listFrom(baseData);
-    const total = totalFrom(baseData, baseList.length);
+  // Respect an inStock filter if provided by the client. Only treat explicit
+  // truthy values as true (1/"1", "true", "yes"). This avoids treating
+  // ?instock=0 as a request for in-stock items.
+  const rawIn = req.query.inStock ?? req.query.instock;
+  const inStockFlag = rawIn != null && ['1', 'true', 'yes'].includes(String(rawIn).toLowerCase());
+
+  // For non-instock queries we can cache the ERP page result for a short TTL.
+  const PRODUCTS_CACHE_TTL = Number(process.env.PRODUCTS_CACHE_TTL_MS || 60 * 1000);
+  const baseCacheKey = `products:v1:${cache.hashParams({ q, category, subcat, brand, page, perPage, locationId })}`;
+
+  // Fetch logic: if inStockFlag is requested we need an accurate total of
+  // matching items across all pages. We'll fetch multiple pages (capped)
+  // and then filter & paginate locally. Otherwise fetch a single page (cacheable).
+  let baseList = [];
+  let total = 0;
+
+  if (inStockFlag) {
+      const MAX_ITEMS = 2000; // safety cap
+      const CHUNK = Math.max(perPage, 200);
+      let pageCursor = 1;
+      let pagesScanned = 0;
+      const scanStart = Date.now();
+      while (baseList.length < MAX_ITEMS) {
+        const q = { ...baseQuery, page: pageCursor, per_page: CHUNK };
+        const { data: pageData } = await erpGetAny(
+          ['/new_product', '/product', '/productapi', '/products'],
+          { query: q }
+        );
+        pagesScanned += 1;
+        const pageList = listFrom(pageData);
+        if (!pageList.length) break;
+        baseList.push(...pageList);
+        const knownTotal = totalFrom(pageData, pageList.length);
+        if (Number.isFinite(knownTotal) && baseList.length >= knownTotal) break;
+        if (pageList.length < CHUNK) break;
+        pageCursor += 1;
+      }
+      const scanMs = Date.now() - scanStart;
+      total = baseList.length;
+      // expose telemetry headers for frontend to show scan progress if desired
+      res.set('X-ERP-Scan-Pages', String(pagesScanned));
+      res.set('X-ERP-Scan-MS', String(scanMs));
+    } else {
+      // Try to use the cached page if available
+      const hit = cache.get(baseCacheKey);
+      if (hit) {
+        baseList = hit.items;
+        total = hit.total;
+        res.set('X-Cache', 'HIT');
+      } else {
+        const { data: baseData } = await erpGetAny(
+          // Try new endpoint first, then fallbacks
+          ['/new_product', '/product', '/productapi', '/products'],
+          { query: baseQuery }
+        );
+        baseList = listFrom(baseData);
+        total = totalFrom(baseData, baseList.length);
+        cache.set(baseCacheKey, { items: baseList, total }, PRODUCTS_CACHE_TTL);
+        res.set('X-Cache', 'MISS');
+      }
+    }
 
     // --- shape items ---
-    const items = baseList.map(p => {
+    let items = baseList.map(p => {
       const id   = p?.id ?? p?.product_id ?? n(p?.product?.id);
       const name = p?.name ?? p?.product_name ?? p?.title ?? p?.product?.name ?? '';
       const sku  = p?.sku ?? p?.product_sku ?? p?.code ?? null;
@@ -209,6 +265,30 @@ router.get('/', authOptional, async (req, res) => {
       };
     });
 
+    // Enforce visibility for this request (best-effort). Hide items belonging to hidden categories/subcategories.
+    try {
+      const hidden = await catVis.hiddenCategorySet(biz(), contactId);
+      items = items.filter(it => !catVis.isHiddenByCategoryIds(hidden, it.category_id, it.sub_category_id));
+      // Adjust total to reflect filtered count
+      total = items.length;
+    } catch (e) {
+      console.error('[products] visibility filter failed', e && e.message ? e.message : e);
+    }
+
+    if (inStockFlag) {
+      // Provide scan telemetry: how many pages scanned & time
+      // Note: we didn't implement granular telemetry above; keep header hook-space
+      const filtered = items.filter(it => it.inStock === true);
+      const finalTotal = filtered.length;
+      const start = (page - 1) * perPage;
+      const paged = filtered.slice(start, start + perPage);
+      res.set('X-Total-Count', String(finalTotal));
+      res.set('X-Page', String(page));
+      res.set('X-Limit', String(perPage));
+      res.set('X-ERP-Scan', 'multi-page');
+      return res.json({ items: paged, page, perPage, total: finalTotal });
+    }
+
     res.set('X-Total-Count', String(total));
     res.set('X-Page', String(page));
     res.set('X-Limit', String(perPage));
@@ -254,6 +334,18 @@ router.get('/:id', authOptional, async (req, res) => {
 
     const p = Array.isArray(data?.data) ? data.data[0] : (data?.data || data);
     if (!p) return res.status(404).json({ error: 'not found' });
+
+    // Enforce category visibility for PDP: return 404 when category/subcategory hidden for this user
+    try {
+      const category_id = n(p?.category_id) ?? n(p?.category?.id);
+      const sub_category_id = n(p?.sub_category_id) ?? n(p?.sub_category?.id);
+      const hidden = await catVis.hiddenCategorySet(biz(), contactId);
+      if (catVis.isHiddenByCategoryIds(hidden, category_id, sub_category_id)) {
+        return res.status(404).json({ error: 'not found' });
+      }
+    } catch (e) {
+      console.error('[products] PDP visibility check failed', e && e.message ? e.message : e);
+    }
 
     // base fields
     const baseId = p?.id ?? p?.product_id ?? n(p?.product?.id);
@@ -494,9 +586,18 @@ router.get('/:id/related', authOptional, async (req, res) => {
       ['/new_product', '/product', '/productapi', '/products'],
       { query: q }
     );
-    const arr = listFrom(data);
+  const arr = listFrom(data);
 
-    const out = arr.map(p => {
+    // Apply visibility filter to related list
+    let outArr = arr;
+    try {
+      const hidden = await catVis.hiddenCategorySet(biz(), contactId);
+      outArr = arr.filter(a => !catVis.isHiddenByCategoryIds(hidden, n(a?.category_id) ?? n(a?.category?.id), n(a?.sub_category_id) ?? n(a?.sub_category?.id)));
+    } catch (e) {
+      console.error('[products] related visibility filter failed', e && e.message ? e.message : e);
+    }
+
+    const out = outArr.map(p => {
       const id   = p?.id ?? p?.product_id ?? n(p?.product?.id);
       const name = p?.name ?? p?.product_name ?? p?.title ?? '';
       const sku  = p?.sku ?? p?.product_sku ?? p?.code ?? null;

@@ -7,6 +7,7 @@ import { Link } from "react-router-dom";
 import { X } from "lucide-react";
 import SmartImage from "../SmartImage";
 import api from "../../api/axios.js";
+import { withLocation } from "../../utils/locations";
 import { useAuth } from "../../state/auth.jsx";
 import "../../styles/quickview.css";
 
@@ -63,11 +64,12 @@ export default function QuickView({ productId, product = null, onClose }) {
     if (!user || !singleVariationId) return;
     setBusy(true);
     try {
-      await api.post("/cart/add", {
-        product_id: productId,
-        variation_id: singleVariationId,
-        quantity: 1,
-      }, { withCredentials: true });
+      const body = withLocation({ product_id: productId, variation_id: singleVariationId, quantity: 1 });
+      const resp = await api.post("/cart/add", body, { withCredentials: true });
+      // If API returns updated cart, sync it to Redux (server authoritative)
+      if (resp?.data?.items) {
+        try { window.dispatchEvent(new CustomEvent('cart:updated', { detail: { items: resp.data.items } })); } catch {}
+      }
       onClose?.();
     } finally {
       setBusy(false);

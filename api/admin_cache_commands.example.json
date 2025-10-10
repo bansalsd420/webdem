@@ -1,0 +1,9 @@
+{
+  "#": "Example admin commands for file-based cache admin. Save as admin_cache_commands.json and set ADMIN_COMMANDS_FILE to its path.",
+  "flush": [
+    "products:v1:*",            
+    "home:v1"
+  ],
+  "# stats": true,
+  "stats": true
+}

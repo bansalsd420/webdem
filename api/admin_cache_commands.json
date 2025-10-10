@@ -1,0 +1,6 @@
+{
+  "flush": [
+    "products:v1:*"
+  ],
+  "stats": true
+}

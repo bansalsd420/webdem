@@ -1,6 +1,91 @@
-System Architecture Deep-Dive
+MojiStore — README (short and actionable)
 
-Overview: The custom ERP + eCommerce system is composed of a React + Vite frontend (for the online store UI), a Node.js + Express backend (exposing RESTful APIs under /api/**), a MySQL database (largely following UltimatePOS’s schema with added tables for web functionality), and integration with the UltimatePOS Connector API for certain ERP operations. The high-level data flow is as follows: the React frontend calls the Express API (using Axios) for all operations (auth, product data, cart, etc.). The Express backend in turn either queries the local database or makes requests to UltimatePOS’s API as needed, then returns JSON to the frontend.
+What this repository contains
+- `mojistore/` — React + Vite storefront (customer-facing UI)
+- `api/` — Node.js + Express backend that exposes JSON APIs under `/api/*`
+- `api/src/lib` — backend helpers (ERP connector, cache, image proxy, utilities)
+- `api/migrations` — optional SQL migrations (e.g. cache invalidation table)
+- `api/ADMIN_FILE_README.md` — quick guide for file-based admin commands
+
+Goal
+This project integrates a storefront UI with a local backend that talks to UltimatePOS (ERP) for authoritative product pricing, stock and order posting. The frontend never calls the ERP directly; it always talks to `api/` which either reads local DB tables or proxies/requests the ERP connector.
+
+Quick answers to "how do I run / test / call routes?" (layman-friendly)
+- Running locally: start backend then frontend.
+	- Backend (from `api/`): set env and run `node src/server.js` (or `npm run dev` to use nodemon).
+	- Frontend (from `mojistore/`): run `npm run dev` (Vite) and open http://localhost:5173 (or the port Vite prints).
+- Calling APIs:
+	- Browser: use the address bar for simple GET routes (for example `http://localhost:4000/api/health`).
+	- Scripts / CLI: use `curl` or PowerShell `Invoke-RestMethod` for requests that need headers/body (recommended for admin endpoints).
+	- Postman: you can import requests if you prefer GUI testing.
+
+Admin options for cache & quick operations (simplified)
+- HTTP admin endpoints (recommended for ad-hoc calls):
+	- POST /api/admin/cache/flush (requires ADMIN_CACHE_SECRET) — flush a specific cache key.
+	- GET  /api/admin/cache/stats  (requires ADMIN_CACHE_SECRET) — get in-process cache stats.
+	Usage (PowerShell):
+	$headers = @{ 'x-admin-cache-secret' = 'YOUR_SECRET' }
+	Invoke-RestMethod -Uri 'http://localhost:4000/api/admin/cache/stats' -Headers $headers
+
+- File-based admin (convenient, no headers):
+	- Enable by setting env: ADMIN_COMMANDS_FILE to a local JSON file path and restart the API.
+	- Drop JSON commands into that file to ask the server to flush keys or write stats.
+	- Example `admin_cache_commands.json`:
+		{
+			"flush": ["products:v1:abcd*"],
+			"stats": true
+		}
+	- The server will process the file, run commands and (if requested) write `admin_cache_stats.json` next to it.
+
+File-admin CLI helper
+---------------------
+If you prefer to script atomic updates to the file-admin commands file, there's a small helper at `api/tools/admin-file-cli.js`.
+Examples:
+
+PowerShell:
+```powershell
+# Write flush + stats in one atomic step
+node api/tools/admin-file-cli.js --file .\api\admin_cache_commands.json --flush "products:v1:*,home:v1" --stats
+```
+
+# Or pipe JSON:
+Get-Content payload.json | node api/tools/admin-file-cli.js --file .\api\admin_cache_commands.json
+
+This writes the commands file atomically (temp file + rename) so partial edits are avoided. The running server (if started with `ADMIN_COMMANDS_FILE` pointing to that file) will pick up commands and act on them.
+
+Should I type admin routes in the browser? 
+- GET requests you can open directly in a browser (if protected by a cookie or secret you may get 403). 
+- POST/DELETE/PATCH calls are easier from curl/PowerShell/Postman since they allow headers and JSON bodies.
+
+Common example commands (PowerShell)
+```powershell
+# Get health
+Invoke-RestMethod -Uri 'http://localhost:4000/api/health'
+
+# Get cache stats (requires ADMIN_CACHE_SECRET env var set on server)
+$headers = @{ 'x-admin-cache-secret' = 'mysecret' }
+Invoke-RestMethod -Uri 'http://localhost:4000/api/admin/cache/stats' -Headers $headers
+
+# Flush an exact cache key
+$body = @{ key = 'products:v1:abcd1234' } | ConvertTo-Json
+Invoke-RestMethod -Uri 'http://localhost:4000/api/admin/cache/flush' -Headers $headers -Method Post -Body $body -ContentType 'application/json'
+
+# Using the file-based admin: edit admin_cache_commands.json and add {"flush":["products:v1:abcd*"]}
+```
+
+Where to look in the codebase (quick pointers)
+- Backend entry: `api/src/server.js` (mounts routes and starts optional file-admin runner)
+- API routes: `api/src/routes/*.js` (products.js, home.js, locations.js, cart.js, checkout.js, admin_cache.js)
+- ERP helper: `api/src/lib/erp.js` (all ERP connector calls are centralized here)
+- Shared cache: `api/src/lib/cache.js` (in-process LRU + optional DB invalidation)
+- File-based admin: `api/src/lib/fileAdmin.js` (watch JSON commands file)
+
+Running checklist (minimal)
+1) From `api/`: `npm install` then (optionally) set env in PowerShell and run backend:
+	 $env:PORT='4000'; $env:ADMIN_COMMANDS_FILE='C:\path\to\admin_cache_commands.json'; node src/server.js
+2) From `mojistore/`: `npm install`; `npm run dev` and open the Vite URL.
+
+If you want me to: I can rewrite the long docs in this repo (`system_blueprint.md`, `mj_web_schema_cheatsheet.md`, and `mj_web_openapi.yaml`) to be shorter and accurate to the current codebase. I will do that if you confirm.
 
 Data Flow & Integration: For most read operations (product listings, search suggestions, home page sections, etc.), the backend queries the local MySQL database (which contains synced product, category, and transaction data from UltimatePOS) for performance. For certain real-time or detailed data (individual product details with stock and price, customer contact info, or posting new orders), the backend calls UltimatePOS’s REST API to ensure up-to-date ERP logic is applied. This hybrid approach means some data is served from the local DB while some flows delegate to UltimatePOS. Authentication and session management are handled via JWT cookies issued by our backend (not directly exposing UltimatePOS credentials), and customer actions like checkout trigger ERP operations (e.g. creating a sale in UltimatePOS).
 

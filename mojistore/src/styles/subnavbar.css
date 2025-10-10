@@ -3,7 +3,11 @@
    ========================================================================== */
 
 .ms-subnav{
-  position: relative;
+  /* Keep the subnav visible below the sticky navbar by sticking it
+     to the top of the viewport offset by the navbar height. This
+     prevents the navbar from overlapping / hiding the subnav. */
+  position: sticky;
+  top: var(--navbar-row-h); /* match Navbar row height variable */
   z-index: var(--z-subnav);
   width: 100%;
   background: var(--color-bg);
@@ -13,6 +17,8 @@
   overflow-x: clip;
   overflow-y: visible;
 }
+
+
 
 /* Row of category pills */
 .ms-subnav .row{
@@ -32,6 +38,9 @@
   position:relative;
   background: var(--color-bg); /* lets the mask blend perfectly */
 }
+
+/* compact location picker inside subnav (visible on mobile/tablet) */
+/* subnav location picker is provided by the shared LocationPicker component */
 
 .ms-subnav .ms-cat{ position:relative; display:inline-block; }
 
@@ -183,8 +192,9 @@
   top: var(--first-row-edge, var(--first-row-h, 0px));
   bottom:-1px;
   background: var(--color-bg);   /* same as subnav background */
-  pointer-events:auto;           /* block clicks on hidden pills */
-  z-index: calc(var(--z-dropdown) - 1); /* under dropdown, over pills */
+  /* allow clicks to pass through to the toggle button (hidden pills are disabled by .is-below) */
+  pointer-events: none;
+  z-index: calc(var(--z-dropdown) - 2); /* under dropdown, under toggle */
 }
 
 /* Disable interaction / fully hide second+ row pills while collapsed */
@@ -219,12 +229,12 @@
 }
 
 .ms-subnav .ms-row-toggle-btn {
-  top:15px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   height: 28px;
   width: 28px;
+  margin: 0; /* ensure no extra offset */
   border-radius: var(--r-btn);
   border: 1px solid var(--color-border);
   background: var(--color-surface);
@@ -247,3 +257,23 @@
   justify-content: space-evenly;  /* equal space before, between, after pills */
   column-gap: 0;                  /* avoid double-spacing with flex “evenly” */
 }
+
+/* === Debug / safety helpers for the row-toggle (remove when resolved) === */
+/* Ensure the toggle sits above the collapse mask and accepts clicks */
+.ms-subnav .ms-row-toggle{
+  pointer-events: auto !important; /* ensure it receives clicks */
+  z-index: calc(var(--z-dropdown) + 2) !important; /* above mask/dropdown */
+}
+.ms-subnav .ms-row-toggle-btn{
+  position: relative;
+  z-index: calc(var(--z-dropdown) + 3) !important;
+  /* optional visual aid during debugging:
+  outline: 2px solid rgba(255,255,0,0.35);
+  */
+}
+
+/* Keep the mask under the toggle so it doesn't intercept clicks */
+.ms-subnav .row[data-collapsed="1"]::after{
+  z-index: calc(var(--z-dropdown) - 2) !important;
+}
+

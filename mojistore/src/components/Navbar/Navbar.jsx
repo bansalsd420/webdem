@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 
 import { getLocations, getLocationId, setLocationId } from '../../utils/locations';;
-import { ShoppingCart, Heart, Sun, Moon, MapPin, Search, X, LogIn, Menu } from 'lucide-react';
+import { ShoppingCart, Heart, Sun, Moon, MapPin, Search, X, Menu, LogIn } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../../api/axios.js';
 import { useSelector } from 'react-redux';
@@ -21,36 +21,8 @@ export default function Navbar() {
   const navigate = useNavigate();
   const route = useLocation();
 
-  // ---------- Auth warmup to avoid "Login" flash ----------
-  const { user } = useAuth() || {};
-  const [sessionUser, setSessionUser] = useState(null);
-  const [authKnown, setAuthKnown] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const { status, data } = await api.get('/account/me', {
-          withCredentials: true,
-          validateStatus: () => true,
-        });
-        if (!alive) return;
-        if (status === 200) setSessionUser(data || {});
-      } catch {
-        /* ignore */
-      } finally {
-        if (alive) setAuthKnown(true);
-      }
-    })();
-    return () => { alive = false; };
-  }, []);
-
-  // keep in sync with context when it arrives/changes
-  useEffect(() => {
-    if (user && !sessionUser) setSessionUser(user);
-    if (!user && sessionUser) setSessionUser(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+  // ---------- Auth session (via provider) ----------
+  const { user, loading: authLoading } = useAuth() || {};
 
   // ---------- Theme ----------
   const [theme, setTheme] = useState(() => (localStorage.getItem('theme') === 'light' ? 'light' : 'dark'));
@@ -81,6 +53,7 @@ export default function Navbar() {
   const [openSug, setOpenSug] = useState(false);
   const sugRef = useRef(null);
   const inputRef = useRef(null);
+  const [activeIdx, setActiveIdx] = useState(-1);
 
   useEffect(() => {
     let alive = true;
@@ -99,8 +72,10 @@ export default function Navbar() {
           validateStatus: () => true,
         });
         if (!alive) return;
-        setSuggestions(Array.isArray(data) ? data : []);
-        setOpenSug(true);
+        const arr = Array.isArray(data) ? data : [];
+        setSuggestions(arr);
+        setActiveIdx(-1);
+        setOpenSug(arr.length > 0);
       } catch {
         if (alive) {
           setSuggestions([]);
@@ -126,6 +101,10 @@ export default function Navbar() {
     const onEsc = (e) => {
       if (e.key === 'Escape') {
         setOpenSug(false); setLocOpen(false); setAuthOpen(false);
+      }
+      // prevent page scroll when navigating suggestions
+      if (openSug && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter')) {
+        e.preventDefault();
       }
     };
     document.addEventListener('mousedown', onDoc);
@@ -172,9 +151,45 @@ export default function Navbar() {
     sp.set('page', '1');
     // preserve current location selection in URL
     if (selectedLocId != null) sp.set('location', String(selectedLocId));
-    navigate(`/products?${sp.toString()}`);
+  const url = `/products?${sp.toString()}`;
+  // debug logging removed
+  navigate(url);
   };
   const clearSearch = () => { setQ(''); setSuggestions([]); setOpenSug(false); inputRef.current?.focus(); };
+
+  // suggestion keyboard navigation
+  const handleSugKeyDown = (e) => {
+    if (!openSug || !suggestions.length) return;
+    if (e.key === 'ArrowDown') {
+      setActiveIdx(i => Math.min(suggestions.length - 1, i + 1));
+    } else if (e.key === 'ArrowUp') {
+      setActiveIdx(i => Math.max(0, i - 1));
+    } else if (e.key === 'Enter') {
+      if (activeIdx >= 0 && suggestions[activeIdx]) {
+        const s = suggestions[activeIdx];
+        if (s.type === 'product') navigate(`/products/${s.id}`);
+        else if (s.type === 'category') {
+          const sp = new URLSearchParams({ category: String(s.id), page: '1' });
+          if (selectedLocId != null) sp.set('location', String(selectedLocId));
+          // debug logging removed
+          navigate(`/products?${sp.toString()}`);
+        } else if (s.type === 'brand') {
+          const sp = new URLSearchParams({ brand: String(s.id), page: '1' });
+          if (selectedLocId != null) sp.set('location', String(selectedLocId));
+          // debug logging removed
+          navigate(`/products?${sp.toString()}`);
+        } else {
+          const sp = new URLSearchParams({ q: String(s.label || ''), page: '1' });
+          if (selectedLocId != null) sp.set('location', String(selectedLocId));
+          // debug logging removed
+          navigate(`/products?${sp.toString()}`);
+        }
+        setOpenSug(false);
+      } else {
+        submitSearch();
+      }
+    }
+  };
 
   const wishFill = route.pathname.startsWith('/wishlist')
     ? (isLight ? '#e11d48' : '#ffffff')
@@ -232,7 +247,11 @@ export default function Navbar() {
             value={q}
             onFocus={() => setOpenSug(true)}
             onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && submitSearch()}
+            onKeyDown={(e) => { if (e.key === 'Enter') submitSearch(); handleSugKeyDown(e); }}
+            role="combobox"
+            aria-expanded={openSug}
+            aria-autocomplete="list"
+            aria-controls="nav-suggest-list"
           />
           {q && (
             <button className="search-clear" aria-label="Clear search" onClick={clearSearch}>
@@ -243,12 +262,16 @@ export default function Navbar() {
           <AnimatePresence>
             {openSug && suggestions.length > 0 && (
               <motion.div className="suggest" variants={suggestionsBox} initial="hidden" animate="visible" exit="hidden">
-                {suggestions.map((s) => (
+                <div id="nav-suggest-list" role="listbox">
+                {suggestions.map((s, idx) => (
                   <button
-                    key={`${s.type}:${s.id}`}
+                    key={`${s.type}:${s.id}:${idx}`}
                     type="button"
-                    className="item sug-grid"
+                    className={`item sug-grid ${idx === activeIdx ? 'sug-active' : ''}`}
+                    role="option"
+                    aria-selected={idx === activeIdx}
                     onMouseDown={(e) => e.preventDefault()}
+                    onMouseEnter={() => setActiveIdx(idx)}
                     onClick={() => {
                       if (s.type === 'product') navigate(`/products/${s.id}`);
                       else if (s.type === 'category') {
@@ -275,6 +298,7 @@ export default function Navbar() {
                     <span className="sug-text">{s.label}</span>
                   </button>
                 ))}
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
@@ -284,12 +308,16 @@ export default function Navbar() {
 
         <Link to="/products?page=1" className="pill">Products</Link>
 
-        {/* Auth button: render nothing until we know session state */}
-        {authKnown && !(user || sessionUser) && (
+        {/* Auth area */}
+        {authLoading && (
+          <div className="pill skel skel-bar" style={{ width: 90 }} aria-hidden />
+        )}
+
+        {!authLoading && !user && (
           <div className="relative" ref={authRef}>
-            <button className="pill" onClick={() => setLocOpen((v) => !v)}>
-              <MapPin size={18} />
-              <span>{selectedLocName || 'Select location'}</span>
+            <button className="pill" onClick={() => setAuthOpen(v => !v)} aria-haspopup="menu" aria-expanded={authOpen ? 'true' : 'false'} title="Login or Register">
+              <LogIn size={18} />
+              <span style={{ marginLeft: 6 }}>Login</span>
             </button>
             {authOpen && (
               <div className="menu">
@@ -302,7 +330,7 @@ export default function Navbar() {
           </div>
         )}
 
-        {authKnown && (user || sessionUser) && (
+        {!authLoading && user && (
           <div className="relative" ref={authRef}>
             <button className="pill" onClick={() => setAuthOpen(v => !v)} aria-haspopup="menu" aria-expanded={authOpen ? 'true' : 'false'} title="My Account">
               My Account

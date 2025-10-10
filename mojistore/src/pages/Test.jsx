@@ -26,6 +26,57 @@ export default function TestPanel() {
 
   useEffect(() => { loadAllVis(); }, []);
 
+  // ---- PER-CONTACT VISIBILITY (DEV) ----
+  const [contactId, setContactId] = useState('');
+  const [contactHidden, setContactHidden] = useState([]);
+  const [pcSelectedCat, setPcSelectedCat] = useState(null);
+  const [pcSearch, setPcSearch] = useState('');
+  const [pcDescendants, setPcDescendants] = useState([]);
+  const [pcRecursive, setPcRecursive] = useState(false);
+  // admin cache UI
+  const [adminSecret, setAdminSecret] = useState('');
+  const [cacheKey, setCacheKey] = useState('');
+  const [cachePrefix, setCachePrefix] = useState('');
+  const [cacheStats, setCacheStats] = useState(null);
+  const [toasts, setToasts] = useState([]);
+  const [adminLoadingFlushKey, setAdminLoadingFlushKey] = useState(false);
+  const [adminLoadingFlushPrefix, setAdminLoadingFlushPrefix] = useState(false);
+  const [adminLoadingStats, setAdminLoadingStats] = useState(false);
+  const [showPrefixConfirm, setShowPrefixConfirm] = useState(false);
+  const loadContactHidden = async (cid) => {
+    if (!cid) return setContactHidden([]);
+    try {
+      const { data } = await axios.get(`/test/visibility/effective`, { params: { business_id: process.env.REACT_APP_BUSINESS_ID || undefined, contact_id: cid } });
+      setContactHidden(Array.isArray(data?.hidden) ? data.hidden : []);
+    } catch (e) { setContactHidden([]); }
+  };
+
+  const applyPerContactHide = async ({ category_id, contact_ids, recursive }) => {
+    await axios.post('/test/visibility/for-contact', { category_id, contact_ids, recursive, business_id: Number(process.env.REACT_APP_BUSINESS_ID || 0) }, { withCredentials: true });
+  };
+
+  const removePerContactHide = async ({ category_id, contact_ids, recursive }) => {
+    await axios.delete('/test/visibility/for-contact', { data: { category_id, contact_ids, recursive, business_id: Number(process.env.REACT_APP_BUSINESS_ID || 0) }, withCredentials: true });
+  };
+
+  const loadDescendants = async (categoryId) => {
+    if (!categoryId) return setPcDescendants([]);
+    try {
+      const { data } = await axios.get('/test/categories/descendants', { params: { category_id: categoryId, business_id: Number(process.env.REACT_APP_BUSINESS_ID || 0) } });
+      setPcDescendants(Array.isArray(data?.categories) ? data.categories : []);
+    } catch (e) { setPcDescendants([]); }
+  };
+
+  const flushVisibilityCache = async (businessId, contactId) => {
+    await axios.post('/test/visibility/flush', { business_id: businessId, contact_id: contactId }, { withCredentials: true });
+  };
+
+  const pushToast = (msg, type = 'info', timeout = 4000) => {
+    const id = Date.now() + Math.random();
+    setToasts(t => [...t, { id, msg, type }]);
+    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), timeout);
+  };
+
   const saveOneVis = async (row) => {
     setVisSaving((p) => ({ ...p, [row.category_id]: true }));
     try {
@@ -190,6 +241,131 @@ export default function TestPanel() {
           </tbody>
         </table>
       </section>
+
+      {/* Per-contact visibility controls */}
+      <section className="panel">
+        <div className="flex" style={{justifyContent:'space-between', alignItems:'center'}}>
+          <h2 className="text-lg font-semibold">Per-contact category hides (dev)</h2>
+          <div className="flex">
+            <input className="border rounded px-3 py-1 mr-2" placeholder="Contact ID" value={contactId} onChange={(e)=>setContactId(e.target.value)} />
+            <button className="btn light" onClick={()=>loadContactHidden(contactId)}>Load hidden</button>
+            <button className="btn light" style={{ marginLeft: 8 }} onClick={() => flushVisibilityCache(Number(process.env.REACT_APP_BUSINESS_ID || 0), contactId)}>Flush visibility cache</button>
+          </div>
+        </div>
+
+        <div className="mt-3">
+          <div className="muted">Hidden categories for contact: {contactHidden.length ? contactHidden.join(', ') : <i>none</i>}</div>
+
+          <div className="mt-3 grid gap-2">
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+              <input placeholder="Search categories..." value={pcSearch} onChange={(e)=>setPcSearch(e.target.value)} style={{ flex: 1 }} className="border rounded px-3 py-2" />
+              <div style={{ minWidth: 320, maxHeight: 220, overflow: 'auto', border: '1px solid #ddd', background: '#fff' }}>
+                {catRows.filter(c => { if (!pcSearch) return true; return (c.category_name || '').toLowerCase().includes(pcSearch.toLowerCase()); }).map(c => {
+                  const isHiddenForContact = contactHidden && contactHidden.includes(Number(c.category_id));
+                  return (
+                    <div key={c.category_id} onClick={() => { setPcSelectedCat({ id: c.category_id, name: c.category_name }); setPcSearch(c.category_name); loadDescendants(c.category_id); }} style={{ padding: 8, cursor: 'pointer', background: pcSelectedCat?.id === c.category_id ? '#eef' : isHiddenForContact ? '#fff7ed' : 'transparent', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                      <div>{c.category_name} (id {c.category_id})</div>
+                      {isHiddenForContact && <div className="pill">hidden</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <div style={{ marginTop: 8 }}><strong>Selected:</strong> {pcSelectedCat ? `${pcSelectedCat.name} (id ${pcSelectedCat.id})` : 'none'}</div>
+              <div style={{ marginTop: 8 }}><label className="inline-flex items-center gap-2"><input type="checkbox" checked={pcRecursive} onChange={(e)=>setPcRecursive(e.target.checked)} /> Include descendants</label></div>
+              <div style={{ marginTop: 8 }} className="flex gap-2">
+                <button className="btn" disabled={!pcSelectedCat || !contactId} onClick={async () => { await applyPerContactHide({ category_id: pcSelectedCat.id, contact_ids: [Number(contactId)], recursive: pcRecursive }); await loadContactHidden(contactId); }}>Apply hide for contact</button>
+                <button className="btn light" style={{ marginLeft: 8 }} disabled={!pcSelectedCat || !contactId} onClick={async () => { await removePerContactHide({ category_id: pcSelectedCat.id, contact_ids: [Number(contactId)], recursive: pcRecursive }); await loadContactHidden(contactId); }}>Remove hide for contact</button>
+              </div>
+            </div>
+
+            <div>
+              <div style={{ marginTop: 8 }}><strong>Descendants preview ({pcDescendants.length})</strong></div>
+              <div style={{ maxHeight: 160, overflow: 'auto', border: '1px solid #eee', padding: 8, marginTop: 8 }}>
+                {pcDescendants.length === 0 ? <div style={{ color: '#777' }}>No descendants or none loaded.</div> : pcDescendants.map(d => <div key={d.id}>{d.name} (id {d.id})</div>)}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Admin cache controls (flush, prefix flush, stats) */}
+      <section className="panel">
+        <div className="flex" style={{justifyContent:'space-between', alignItems:'center'}}>
+          <h2 className="text-lg font-semibold">Admin cache controls</h2>
+          <div style={{maxWidth: 520, display: 'flex', gap: 8}}>
+            <input placeholder="Admin secret" value={adminSecret} onChange={(e)=>setAdminSecret(e.target.value)} className="border rounded px-3 py-1" />
+          </div>
+        </div>
+
+        <div style={{marginTop: 12}}>
+          <div style={{display:'flex', gap:8, alignItems:'center'}}>
+            <input placeholder="Exact cache key to flush (e.g. products:v1:abc)" value={cacheKey} onChange={(e)=>setCacheKey(e.target.value)} className="border rounded px-3 py-2" style={{flex:1}} />
+            <button className="btn light" onClick={async ()=>{
+              if (!cacheKey) return pushToast('Enter a cache key', 'error');
+              setAdminLoadingFlushKey(true);
+              try {
+                await axios.post('/admin/cache/flush', { key: cacheKey, secret: adminSecret });
+                pushToast('Flushed ' + cacheKey, 'success');
+              } catch (e) { pushToast('Flush failed: ' + (e?.response?.data?.error || e.message), 'error'); }
+              finally { setAdminLoadingFlushKey(false); }
+            }}>Flush key</button>
+          </div>
+
+          <div style={{marginTop:8, display:'flex', gap:8, alignItems:'center'}}>
+            <input placeholder="Prefix to flush (e.g. products:v1:)" value={cachePrefix} onChange={(e)=>setCachePrefix(e.target.value)} className="border rounded px-3 py-2" style={{flex:1}} />
+            <button className="btn light" onClick={async ()=>{
+              if (!cachePrefix) return pushToast('Enter a prefix', 'error');
+              // show confirm modal for prefix
+              setShowPrefixConfirm(true);
+            }}>{adminLoadingFlushPrefix ? 'Working…' : 'Flush prefix'}</button>
+          </div>
+
+          <div style={{marginTop:8}}>
+            <button className="btn" onClick={async ()=>{
+              setAdminLoadingStats(true);
+              try {
+                const { data } = await axios.get('/admin/cache/stats', { params: { secret: adminSecret } });
+                setCacheStats(data?.stats || null);
+                pushToast('Loaded cache stats', 'info');
+              } catch (e) { pushToast('Stats failed: ' + (e?.response?.data?.error || e.message), 'error'); }
+              finally { setAdminLoadingStats(false); }
+            }}>{adminLoadingStats ? 'Loading…' : 'Load cache stats'}</button>
+            {cacheStats && <pre style={{marginTop:8, maxHeight:200, overflow:'auto', background:'#fff', padding:8, border:'1px solid #eee'}}>{JSON.stringify(cacheStats, null, 2)}</pre>}
+          </div>
+        </div>
+      </section>
+
+      {/* Prefix flush confirmation modal */}
+      {showPrefixConfirm && (
+        <div style={{position:'fixed', left:0, top:0, right:0, bottom:0, background:'rgba(0,0,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center'}}>
+          <div style={{background:'#fff', padding:20, borderRadius:8, width:520}}>
+            <h3>Confirm prefix flush</h3>
+            <p>You're about to flush cache keys matching prefix: <code>{cachePrefix}</code></p>
+            <p style={{color:'#b00'}}>This may remove many cache entries. Proceed only if you understand the impact.</p>
+            <div style={{display:'flex', gap:8, justifyContent:'flex-end', marginTop:12}}>
+              <button className="btn light" onClick={()=>setShowPrefixConfirm(false)}>Cancel</button>
+              <button className="btn" onClick={async ()=>{
+                setAdminLoadingFlushPrefix(true);
+                try {
+                  await axios.post('/admin/cache/flush-prefix', { prefix: cachePrefix, secret: adminSecret });
+                  pushToast('Flushed prefix ' + cachePrefix, 'success');
+                } catch (e) { pushToast('Flush-prefix failed: ' + (e?.response?.data?.error || e.message), 'error'); }
+                finally { setAdminLoadingFlushPrefix(false); setShowPrefixConfirm(false); }
+              }}>{adminLoadingFlushPrefix ? 'Working…' : 'Confirm flush'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toasts */}
+      <div style={{position:'fixed', right:16, bottom:16, display:'flex', flexDirection:'column', gap:8}}>
+        {toasts.map(t => (
+          <div key={t.id} style={{background: t.type === 'error' ? '#fee' : t.type === 'success' ? '#e6ffed' : '#eef', border: '1px solid #ddd', padding: 8, borderRadius: 6}}>{t.msg}</div>
+        ))}
+      </div>
 
       {/* Banners */}
       <section className="panel">

@@ -1,384 +1,227 @@
 openapi: 3.0.3
 info:
   title: MJ_WEB API
-  version: 1.0.0
-servers:
-- url: /api
-paths:
-  /auth/request-reset:
-    post:
-      summary: Request password reset
-      responses:
-        '200':
-          description: Always 200 to prevent enumeration
+  ```yaml
+  openapi: 3.0.3
+  info:
+    title: MJ_WEB API (implemented subset)
+    version: 1.0.0
+  servers:
+    - url: /api
+  paths:
+    /auth/login:
+      post:
+        summary: Login (returns auth cookie)
+        requestBody:
+          required: true
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  ok:
-                    type: boolean
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
+                  email: { type: string }
+                  password: { type: string }
+                required: [email, password]
+        responses:
+          '200': { description: OK }
+
+    /auth/logout:
+      post:
+        summary: Logout (clears cookie)
+        responses: { '200': { description: OK } }
+
+    /auth/request-reset:
+      post:
+        summary: Request password reset (safe 200)
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { email: { type: string } }
+        responses: { '200': { description: OK } }
+
+    /auth/reset:
+      post:
+        summary: Reset password with token
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  password: { type: string }
+                required: [token, password]
+        responses: { '200': { description: OK } }
+
+    /account/me:
+      get:
+        summary: Current session profile (uses cookie auth)
+        security: [ { cookieAuth: [] } ]
+        responses: { '200': { description: OK } }
+
+    /products:
+      get:
+        summary: List products (supports q, category, brand, page, perPage, locationId, inStock)
+        parameters:
+          - in: query
+            name: q
+            schema: { type: string }
+          - in: query
+            name: page
+            schema: { type: integer }
+          - in: query
+            name: perPage
+            schema: { type: integer }
+          - in: query
+            name: locationId
+            schema: { type: integer }
+          - in: query
+            name: inStock
+            schema: { type: string }
+        responses:
+          '200':
+            description: OK
+            headers:
+              X-Total-Count: { schema: { type: string } }
+              X-ERP-Scan-Pages: { schema: { type: string } }
+              X-ERP-Scan-MS: { schema: { type: string } }
+
+    /products/{id}:
+      get:
+        summary: Product detail
+        parameters:
+          - in: path
+            name: id
+            schema: { type: integer }
+        responses: { '200': { description: OK } }
+
+    /filters:
+      get:
+        summary: Facet counts for filters (brands/categories/subcategories)
+        parameters:
+          - in: query
+            name: q
+            schema: { type: string }
+          - in: query
+            name: categoryId
+            schema: { type: integer }
+        responses: { '200': { description: OK } }
+
+    /search/suggest:
+      get:
+        summary: Search suggestions (autocomplete)
+        parameters:
+          - in: query
+            name: q
+            required: true
+            schema: { type: string }
+        responses: { '200': { description: OK } }
+
+    /cart:
+      get:
+        summary: Get server cart (authenticated users)
+        security: [ { cookieAuth: [] } ]
+        responses: { '200': { description: OK } }
+
+    /cart/add:
+      post:
+        summary: Add item to server cart
+        security: [ { cookieAuth: [] } ]
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  productId: { type: integer }
+                  variationId: { type: integer }
+                  qty: { type: integer }
+                required: [productId, variationId, qty]
+        responses: { '200': { description: OK } }
+
+    /cart/update:
+      patch:
+        summary: Update line qty
+        security: [ { cookieAuth: [] } ]
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: integer }
+                  qty: { type: integer }
+                required: [id, qty]
+        responses: { '200': { description: OK } }
+
+    /cart/remove/{id}:
+      delete:
+        summary: Remove line
+        security: [ { cookieAuth: [] } ]
+        parameters:
+          - in: path
+            name: id
+            required: true
+            schema: { type: integer }
+        responses: { '200': { description: OK } }
+
+    /checkout/bootstrap:
+      get:
+        summary: Bootstrap checkout (locations + defaults)
+        security: [ { cookieAuth: [] } ]
+        responses: { '200': { description: OK } }
+
+    /checkout/create:
+      post:
+        summary: Create sell (server computes pricing and posts to connector)
+        security: [ { cookieAuth: [] } ]
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        responses: { '200': { description: OK } }
+
+    /locations:
+      get:
+        summary: List business locations
+        responses: { '200': { description: OK } }
+
+    /api/admin/cache/flush:
+      post:
+        summary: Admin: flush a cache key (requires ADMIN_CACHE_SECRET via header or body secret)
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { key: { type: string } }
+                required: [key]
+        responses: { '200': { description: OK } }
+
+    /api/admin/cache/stats:
+      get:
+        summary: Admin: get in-process cache stats (requires ADMIN_CACHE_SECRET)
+        responses: { '200': { description: OK } }
+
+  components:
+    securitySchemes:
+      cookieAuth:
+        type: apiKey
+        in: cookie
+        name: token
+      bearerAuth:
+        type: http
+        scheme: bearer
+        bearerFormat: JWT
+  ```
               properties:
-                email:
-                  type: string
-              required:
-              - email
-  /auth/reset:
-    post:
-      summary: Reset password with token
-      responses:
-        '200':
-          description: Resets password and sets cookie
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                token:
-                  type: string
-                password:
-                  type: string
-              required:
-              - token
-              - password
-  /auth/login:
-    post:
-      summary: Login
-      responses:
-        '200':
-          description: Sets HTTP-only auth cookie
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                email:
-                  type: string
-                password:
-                  type: string
-              required:
-              - email
-              - password
-  /auth/logout:
-    post:
-      summary: Logout
-      responses:
-        '200':
-          description: Clears auth cookie
-  /account/me:
-    get:
-      summary: Current account profile ids
-      responses:
-        '200':
-          description: OK
-      security:
-      - cookieAuth: []
-  /account/orders:
-    get:
-      summary: List orders (transactions)
-      responses:
-        '200':
-          description: OK
-      parameters:
-      - in: query
-        name: page
-        schema:
-          type: integer
-      - in: query
-        name: limit
-        schema:
-          type: integer
-      security:
-      - cookieAuth: []
-  /account/documents:
-    get:
-      summary: List documents for contact
-      responses:
-        '200':
-          description: OK
-      security:
-      - cookieAuth: []
-  /account/profile:
-    get:
-      summary: Connector-backed profile
-      responses:
-        '200':
-          description: OK
-      security:
-      - cookieAuth: []
-    put:
-      summary: Update local contact & auth email
-      responses:
-        '200':
-          description: OK
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-      security:
-      - cookieAuth: []
-  /account/addresses:
-    get:
-      summary: Connector-backed addresses
-      responses:
-        '200':
-          description: OK
-      security:
-      - cookieAuth: []
-  /products:
-    get:
-      summary: List products
-      responses:
-        '200':
-          description: OK
-      parameters:
-      - in: query
-        name: q
-        schema:
-          type: string
-  /products/{id}:
-    get:
-      summary: Get product detail
-      responses:
-        '200':
-          description: OK
-      parameters:
-      - in: path
-        name: id
-        required: true
-        schema:
-          type: integer
-  /products/{id}/related:
-    get:
-      summary: Related products
-      responses:
-        '200':
-          description: OK
-      parameters:
-      - in: path
-        name: id
-        required: true
-        schema:
-          type: integer
-  /filters:
-    get:
-      summary: Facet counts
-      responses:
-        '200':
-          description: OK
-      parameters:
-      - in: query
-        name: q
-        schema:
-          type: string
-      - in: query
-        name: categoryId
-        schema:
-          type: integer
-      - in: query
-        name: subCategoryId
-        schema:
-          type: integer
-  /search/suggest:
-    get:
-      summary: Search suggestions
-      responses:
-        '200':
-          description: OK
-      parameters:
-      - in: query
-        name: q
-        required: true
-        schema:
-          type: string
-  /cart:
-    get:
-      summary: Get cart
-      responses:
-        '200':
-          description: OK
-      security:
-      - cookieAuth: []
-  /cart/add:
-    post:
-      summary: Add item
-      responses:
-        '200':
-          description: OK
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                productId:
-                  type: integer
-                variationId:
-                  type: integer
-                qty:
-                  type: integer
-              required:
-              - productId
-              - variationId
-              - qty
-      security:
-      - cookieAuth: []
-  /cart/update:
-    patch:
-      summary: Update line qty
-      responses:
-        '200':
-          description: OK
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                id:
-                  type: integer
-                qty:
-                  type: integer
-              required:
-              - id
-              - qty
-      security:
-      - cookieAuth: []
-  /cart/remove/{id}:
-    delete:
-      summary: Remove line
-      responses:
-        '200':
-          description: OK
-      parameters:
-      - in: path
-        name: id
-        required: true
-        schema:
-          type: integer
-      security:
-      - cookieAuth: []
-  /checkout/bootstrap:
-    get:
-      summary: Bootstrap checkout
-      responses:
-        '200':
-          description: OK
-      security:
-      - cookieAuth: []
-  /checkout/create:
-    post:
-      summary: Create sell
-      responses:
-        '200':
-          description: OK
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-      security:
-      - cookieAuth: []
-  /locations:
-    get:
-      summary: List business locations
-      responses:
-        '200':
-          description: OK
-  /brands:
-    get:
-      summary: Top brands
-      responses:
-        '200':
-          description: OK
-      parameters:
-      - in: query
-        name: limit
-        schema:
-          type: integer
-  /cms/settings:
-    get:
-      summary: Public settings
-      responses:
-        '200':
-          description: OK
-  /cms/contact:
-    post:
-      summary: Contact form
-      responses:
-        '200':
-          description: OK
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-  /wishlist:
-    get:
-      summary: List wishlist
-      responses:
-        '200':
-          description: OK
-      security:
-      - cookieAuth: []
-    post:
-      summary: Add to wishlist
-      responses:
-        '200':
-          description: OK
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                productId:
-                  type: integer
-              required:
-              - productId
-      security:
-      - cookieAuth: []
-  /wishlist/{productId}:
-    delete:
-      summary: Remove from wishlist
-      responses:
-        '200':
-          description: OK
-      parameters:
-      - in: path
-        name: productId
-        required: true
-        schema:
-          type: integer
-      security:
-      - cookieAuth: []
-components:
-  securitySchemes:
-    cookieAuth:
-      type: apiKey
-      in: cookie
-      name: token
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT

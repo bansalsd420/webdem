@@ -19,6 +19,9 @@ import cmsRouter from './routes/cms.js';
 import accountProfile from "./routes/accountProfile.js";
 import trySell from './routes/try-sell.js';
 import testRouter from './routes/test.js';
+import adminCacheRouter from './routes/admin_cache.js';
+import cache from './lib/cache.js';
+import { startFileAdmin } from './lib/fileAdmin.js';
 import { pool } from './db.js';
 import './config/env.js';
 
@@ -69,6 +72,7 @@ app.use('/api/home', home);
 app.use('/api/cart', cart);
 app.use('/api/checkout', checkout);
 app.use('/api/test', testRouter);
+app.use('/api/admin/cache', adminCacheRouter);
 app.use('/img', imageRouter);
 app.use('/api/locations', locations);
 app.use('/api/account', account);
@@ -85,3 +89,15 @@ app.use((err, req, res, _next) => {
 
 const port = Number(process.env.PORT || 4000);
 app.listen(port, () => console.log('API listening on', port));
+
+// Optional file-based admin runner for simple ops (flush, stats) via JSON file.
+if (process.env.ADMIN_COMMANDS_FILE) {
+  try {
+    const adminRunner = startFileAdmin({ cache, commandsFile: process.env.ADMIN_COMMANDS_FILE });
+    // attach to app for testing/cleanup if desired
+    app.set('adminFileRunner', adminRunner);
+    console.log('[server] admin file runner started for', process.env.ADMIN_COMMANDS_FILE);
+  } catch (e) {
+    console.error('[server] failed to start admin file runner', e && e.message ? e.message : e);
+  }
+}

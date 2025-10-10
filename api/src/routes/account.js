@@ -34,11 +34,17 @@ function setPageHeaders(res, total, page, limit) {
 
 // small helper to resolve the logged-in contact_id
 async function contactIdForUser(uid) {
-  const [[u]] = await pool.query(
-    'SELECT contact_id FROM app_auth_users WHERE id=:id',
-    { id: uid }
-  );
-  return u?.contact_id || null;
+  try {
+    const [[u]] = await pool.query(
+      'SELECT contact_id FROM app_auth_users WHERE id=:id',
+      { id: uid }
+    );
+    return u?.contact_id || null;
+  } catch (e) {
+    console.error('[contactIdForUser] DB error', e && e.message ? e.message : e);
+    // Don't throw here — callers may not always catch; return null so caller can respond appropriately
+    return null;
+  }
 }
 async function loadContactBits(contactId) {
   if (!contactId) return { contact_code: null, customer_group_id: null };

@@ -57,8 +57,13 @@ export function AuthProvider({ children }) {
       
       prevUserRef.current = newUser;
     } catch (err) {
-      console.error('auth refresh failed:', err);
-      setError(err);
+      // Treat 401 as anonymous; avoid noisy console logs for expected anonymous sessions
+      if (err?.response?.status !== 401) {
+        console.warn('auth refresh failed:', err);
+        setError(err);
+      } else {
+        setError(null);
+      }
       setUser(null);
       prevUserRef.current = null;
     } finally {

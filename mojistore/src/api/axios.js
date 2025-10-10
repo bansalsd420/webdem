@@ -45,7 +45,9 @@ api.interceptors.response.use(
   (resp) => resp,
   (err) => {
     const status = err?.response?.status;
-    if (status === 401) {
+    const url = err?.config?.url || '';
+    // Avoid spamming logout for anonymous /account/me probes
+    if (status === 401 && !url.includes('/account/me')) {
       try { window.dispatchEvent(new CustomEvent('auth:logout')); } catch {}
     }
     return Promise.reject(err);

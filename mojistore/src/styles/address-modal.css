@@ -1,0 +1,44 @@
+/* Shared address modal styles with subtle animation and accessible helpers */
+:root{
+  --addr-modal-width: min(540px, 94vw);
+}
+.addr-modal{ position: fixed; inset:0; z-index:10000; display:flex; align-items:center; justify-content:center; }
+.addr-modal-backdrop{ position:absolute; inset:0; background: rgba(0,0,0,0.45); backdrop-filter: blur(4px); }
+.addr-modal-body{
+  position:relative;
+  background: var(--color-surface, #fff);
+  color: var(--color-text, #111);
+  border:1px solid var(--color-border, #e6e6e6);
+  padding:1.25rem 1.5rem;
+  border-radius:12px;
+  width: var(--addr-modal-width);
+  max-height: 88vh;
+  overflow:auto;
+  box-shadow: 0 12px 30px rgba(3,10,30,0.12);
+  transform-origin: center;
+  transform: translateY(6px) scale(.997);
+  opacity: 0;
+  animation: addrFadeUp .22s cubic-bezier(.2,.9,.2,1) forwards;
+}
+@keyframes addrFadeUp{ from{ opacity:0; transform: translateY(12px) scale(.995); } to{ opacity:1; transform: translateY(0) scale(1); } }
+.addr-modal-title{ margin:0 0 1rem; font-size:1.05rem; font-weight:700; }
+.addr-form-grid{ display:grid; gap:.75rem; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); }
+.addr-form-grid label{ display:flex; flex-direction:column; gap:6px; font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--color-muted); }
+.addr-form-grid input{ padding:.6rem .7rem; border:1px solid var(--color-border, #ddd); border-radius:9px; background:var(--color-input-bg, transparent); font-size:.95rem; }
+.addr-form-grid input:focus{ box-shadow: 0 0 0 3px rgba(99,102,241,0.09); outline: none; border-color: rgba(99,102,241,0.9); }
+.addr-modal-actions{ display:flex; justify-content:flex-end; gap:.75rem; margin-top:1.25rem; }
+.addr-form-error{ margin-top:.75rem; font-size:.85rem; color: var(--color-danger, #c0392b); }
+/* Buttons */
+.btn-slim{ padding: .45rem .7rem; border-radius: 8px; border:1px solid var(--color-border, #ddd); background: var(--color-btn-bg, transparent); }
+.btn-slim.btn-spin{ opacity: .9; }
+/* Success micro-state for save button */
+.btn-success{ background: linear-gradient(180deg, #16a34a 0%, #0ea45a 100%); color: #fff; border-color: rgba(10,100,40,0.85); box-shadow: 0 6px 18px rgba(16,185,129,0.12); }
+.btn-success::after{ content: '✓'; display:inline-block; margin-left:8px; transform: translateY(2px); font-weight:700; }
+.btn-check{ display:inline-flex; align-items:center; margin-left:8px; }
+.btn-check svg{ width:14px; height:14px; display:block; }
+.btn-success-animate{ animation: btnPop .28s cubic-bezier(.2,.9,.2,1); }
+@keyframes btnPop{ 0%{ transform: scale(.98); } 60%{ transform: scale(1.04); } 100%{ transform: scale(1); } }
+/* visually-hidden helper for aria-live */
+.sr-only{ position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+/* small responsive tweaks */
+@media (max-width:420px){ .addr-modal-body{ padding: 1rem; border-radius: 10px; } .addr-form-grid{ gap:.5rem; } }

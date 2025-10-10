@@ -49,6 +49,8 @@
   /* Layer scale */
   --z-subnav: 40;
   --z-navbar: 60;
+  /* Navbar row height (used by navbar and subnav to avoid overlap) */
+  --navbar-row-h: 58px;
   --z-dropdown: 75;
   --z-popover: 70;
   /* nav menus, search suggest */

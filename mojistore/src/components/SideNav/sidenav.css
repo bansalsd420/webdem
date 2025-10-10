@@ -54,7 +54,18 @@
   border-radius: 999px;
 }
 
-/* On desktop, shift content when open (Shell toggles class) */
-@media (min-width: 1024px){
-  .shell-with-sidenav{ padding-left: 264px; }
+/* Location picker inside SideNav */
+.ms-sidenav-loc { margin: .25rem .25rem .6rem; }
+.ms-sidenav-loc .loc-pill { display:flex; align-items:center; gap:.5rem; padding:.45rem .55rem; border-radius:8px; background:transparent; border:1px solid transparent; color:var(--color-text); }
+.ms-sidenav-loc .loc-pill:hover { background:var(--color-surface-2); border-color:var(--color-border); }
+.loc-menu { margin-top:.35rem; display:grid; gap:.25rem; }
+.loc-item { text-align:left; padding:.45rem .5rem; border-radius:6px; background:transparent; border:1px solid transparent; }
+.loc-item:hover { background:var(--color-surface-2); border-color:var(--color-border); }
+
+/* Hide SideNav entirely on large desktop/ultrawide screens — side-nav is only for mobile/tablet */
+@media (min-width: 1024px) {
+  .ms-sidenav { display: none !important; }
+  .shell-with-sidenav { padding-left: 0 !important; }
 }
+
+/* (desktop padding removed — SideNav is now mobile/tablet-only) */

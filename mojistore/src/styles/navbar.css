@@ -8,7 +8,7 @@
   border-bottom: 1px solid var(--color-border);
 }
 .ms-nav .row{
-  height: 58px;
+  height: var(--navbar-row-h);
   display: flex; align-items: center;
   gap: 10px;
 }
@@ -83,6 +83,22 @@
 }
 .ms-nav .item:hover{ background: var(--color-surface-2); }
 
+/* Suggestion grid: thumbnail + text */
+.ms-nav .sug-grid{ display:flex; align-items:center; gap:.7rem; }
+.ms-nav .sug-thumb{ width:44px; height:44px; object-fit:cover; border-radius:8px; flex: 0 0 44px; }
+.ms-nav .sug-thumb--empty{ width:44px; height:44px; background:linear-gradient(135deg, rgba(0,0,0,.04), rgba(0,0,0,.06)); border-radius:8px; }
+.ms-nav .sug-text{ display:block; font-size:13px; color:var(--color-text); }
+
+/* Active / keyboard focus state */
+.ms-nav .sug-active{ background: color-mix(in oklab, var(--color-accent) 6%, var(--color-surface-2)); outline: none; }
+.ms-nav .sug-active .sug-text{ color: var(--color-accent); }
+
+/* make suggestions more compact on small screens */
+@media (max-width: 720px){
+  .ms-nav .sug-thumb{ width:38px; height:38px; }
+  .ms-nav .sug-text{ font-size:12px; }
+}
+
 /* Menus (location & login) — boxed options */
 .ms-nav .menu{
   position:absolute; top:calc(100% + 8px); right:0;
@@ -119,4 +135,9 @@
   .ms-nav .pill.hamburger{ display: inline-flex; }
   .ms-nav .brand{ margin-right: 4px; }
   .ms-nav .search-wrap{ flex: 1 1 auto; min-width: 0; margin-left: 6px; }
+}
+
+/* Desktop: hide hamburger since SideNav is mobile-only */
+@media (min-width: 1024px) {
+  .ms-nav .pill.hamburger { display: none !important; }
 }

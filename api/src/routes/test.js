@@ -8,6 +8,128 @@ import { pool } from "../db.js";
 const router = express.Router();
 const BID = Number(process.env.BUSINESS_ID || 0);
 
+// ---------- per-contact hidden visibility helpers (dev/test) ----------
+// GET /visibility/effective?business_id=&contact_id=
+router.get('/visibility/effective', async (req, res) => {
+  try {
+    const businessId = Number(req.query.business_id || BID || 0);
+    const contactId = req.query.contact_id ? Number(req.query.contact_id) : null;
+    const catVis = await import('../lib/categoryVisibility.js');
+    const set = await catVis.hiddenCategorySet(businessId, contactId);
+    res.json({ business_id: businessId, contact_id: contactId, hidden: Array.from(set || []) });
+  } catch (e) {
+    console.error('test visibility effective error', e);
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
+// POST /visibility/for-contact  body: { category_id, contact_ids:[], recursive, business_id }
+router.post('/visibility/for-contact', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const categoryId = Number(body.category_id || 0);
+    const contactIds = Array.isArray(body.contact_ids) ? body.contact_ids.map(Number).filter(Boolean) : [];
+    const recursive = !!body.recursive;
+    const businessId = Number(body.business_id || BID || 0);
+    if (!categoryId || !contactIds.length) return res.status(400).json({ error: 'category_id_and_contact_ids_required' });
+
+    // compute categories (descendants if recursive)
+    const { expandDescendants } = await import('../lib/categoryVisibility.js');
+    let categories = [categoryId];
+    if (recursive && typeof expandDescendants === 'function') {
+      try { categories = Array.from(await expandDescendants([categoryId], businessId)); } catch { /* fallback to single */ }
+    }
+
+    // delete existing for these cats/contact/biz then insert
+    await pool.query('DELETE FROM app_category_hidden_for_contacts WHERE business_id = :bid AND category_id IN (:cats) AND contact_id IN (:cids)', { bid: businessId, cats: categories, cids: contactIds });
+    const values = [];
+    for (const c of categories) for (const cid of contactIds) values.push([c, cid, businessId]);
+    if (values.length) await pool.query('INSERT INTO app_category_hidden_for_contacts (category_id, contact_id, business_id) VALUES ?', [values]);
+
+    // invalidate cache
+    const catvis = await import('../lib/categoryVisibility.js');
+    try { catvis.invalidateVisibilityCache({ businessId }); } catch (e) { console.error('invalidate vis cache failed', e); }
+
+    res.json({ ok: true, categories, contact_ids: contactIds });
+  } catch (e) {
+    console.error('test visibility for-contact error', e);
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
+// DELETE /visibility/for-contact body: { category_id, contact_ids:[], recursive, business_id }
+router.delete('/visibility/for-contact', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const categoryId = Number(body.category_id || 0);
+    const contactIds = Array.isArray(body.contact_ids) ? body.contact_ids.map(Number).filter(Boolean) : [];
+    const recursive = !!body.recursive;
+    const businessId = Number(body.business_id || BID || 0);
+    if (!categoryId || !contactIds.length) return res.status(400).json({ error: 'category_id_and_contact_ids_required' });
+
+    const { expandDescendants } = await import('../lib/categoryVisibility.js');
+    let categories = [categoryId];
+    if (recursive && typeof expandDescendants === 'function') {
+      try { categories = Array.from(await expandDescendants([categoryId], businessId)); } catch { }
+    }
+
+    await pool.query('DELETE FROM app_category_hidden_for_contacts WHERE business_id = :bid AND category_id IN (:cats) AND contact_id IN (:cids)', { bid: businessId, cats: categories, cids: contactIds });
+    const catvis = await import('../lib/categoryVisibility.js');
+    try { catvis.invalidateVisibilityCache({ businessId }); } catch (e) { console.error('invalidate vis cache failed', e); }
+    res.json({ ok: true, removed: categories, contact_ids: contactIds });
+  } catch (e) {
+    console.error('test visibility for-contact delete error', e);
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
+// GET /categories/descendants?category_id=...&business_id=...
+router.get('/categories/descendants', async (req, res) => {
+  try {
+    const categoryId = Number(req.query.category_id || 0);
+    const businessId = Number(req.query.business_id || BID || 0);
+    if (!categoryId) return res.status(400).json({ error: 'category_id_required' });
+    const { expandDescendants } = await import('../lib/categoryVisibility.js');
+    let ids = [categoryId];
+    try {
+      if (typeof expandDescendants === 'function') {
+        ids = Array.from(await expandDescendants([categoryId], businessId));
+      }
+    } catch (e) {
+      // fallback: scan categories table
+      const [rows] = await pool.query('SELECT id, parent_id, name FROM categories WHERE business_id = ?', [businessId]);
+      const map = new Map();
+      for (const r of rows) { map.set(Number(r.id), { parent: Number(r.parent_id), name: r.name }); }
+      const out = new Set(); const q = [categoryId];
+      while (q.length) {
+        const c = q.shift(); if (out.has(c)) continue; out.add(c);
+        for (const [id, v] of map.entries()) if (v.parent === c) q.push(id);
+      }
+      ids = Array.from(out);
+    }
+    // fetch names for ids
+    const [rows] = await pool.query('SELECT id, name FROM categories WHERE id IN (?)', [ids]);
+    res.json({ ids: ids, categories: rows });
+  } catch (e) {
+    console.error('test categories descendants error', e);
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
+// POST /visibility/flush  body: { business_id?, contact_id? }
+router.post('/visibility/flush', async (req, res) => {
+  try {
+    const businessId = Number(req.body.business_id || BID || 0);
+    const contactId = req.body.contact_id ? Number(req.body.contact_id) : undefined;
+    const catvis = await import('../lib/categoryVisibility.js');
+    try { catvis.invalidateVisibilityCache({ businessId, contactId }); } catch (e) { console.error('invalidate vis cache failed', e); }
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('test visibility flush error', e);
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
 // ---------- utils ----------
 const normBool = (v, def = 0) =>
   v === true || v === 1 || v === "1" || v === "true"

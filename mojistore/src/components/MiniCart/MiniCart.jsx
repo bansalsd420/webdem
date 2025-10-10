@@ -1,5 +1,5 @@
 /* src/components/MiniCart/MiniCart.jsx */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";              // ✅ added
 import axios from "../../api/axios.js";
@@ -8,20 +8,33 @@ import { setServer, add as addLocal, remove as removeLocal } from "../../redux/s
 import { useAuth } from "../../state/auth.jsx";
 import SmartImage from "../SmartImage.jsx";
 import { X, Trash2 } from "lucide-react";
-import { getLocationId } from "../../utils/locations";
+import { getLocationId, withLocation } from "../../utils/locations";
 export default function MiniCart({ onClose }) {
   const { user } = useAuth();
   const dispatch = useDispatch();
   const clientCart = useSelector((s) => s.cart);
   const [loading, setLoading] = useState(true);
+  const [updatingLines, setUpdatingLines] = useState({});
+  const [lineErrors, setLineErrors] = useState({});
+  const pendingTimers = useRef({});
+  const pendingDesired = useRef({});
+  const pendingSnapshot = useRef({});
+  const DEBOUNCE_MS = 200; // tuned
+  const animTimers = useRef({});
+  const [recentUpdated, setRecentUpdated] = useState({});
   const locationId = getLocationId();
   const load = async () => {
+    // If we already have items in the client cart, avoid refetching immediately
+    if (user && Array.isArray(clientCart.items) && clientCart.items.length > 0) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       if (user) {
         const { data } = await axios.get("/cart", {
           withCredentials: true,
-          params: { location_id: locationId },
+          params: withLocation({}),
         });
         dispatch(setServer(data?.items || []));
       }
@@ -32,6 +45,8 @@ export default function MiniCart({ onClose }) {
 
   useEffect(() => {
     load();
+    const onLoc = () => load();
+    window.addEventListener('location:changed', onLoc);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const onKey = (e) => e.key === "Escape" && onClose?.();
@@ -39,6 +54,7 @@ export default function MiniCart({ onClose }) {
     return () => {
       document.body.style.overflow = prev;
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener('location:changed', onLoc);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
@@ -58,7 +74,7 @@ export default function MiniCart({ onClose }) {
     [items]
   );
 
-  const changeQty = async (line, nextQty) => {
+  const changeQty = (line, nextQty) => {
     const newQty = Math.max(0, Math.floor(nextQty || 0));
     if (!user) {
       const delta = newQty - Math.floor(line.qty || 0);
@@ -77,13 +93,75 @@ export default function MiniCart({ onClose }) {
       }
       return;
     }
-    const { data } = await axios.patch(
-      "/cart/update",
-      { id: line.id, qty: newQty, location_id: locationId },
-      { withCredentials: true }
-    );
-    dispatch(setServer(data?.items || []));
+
+    const lineId = line.id;
+    if (Math.floor(line.qty || 0) === newQty) return;
+
+    if (!pendingSnapshot.current[lineId]) {
+      pendingSnapshot.current[lineId] = items.map((it) => ({ ...it }));
+    }
+    pendingDesired.current[lineId] = newQty;
+
+    const optimistic = items.map((it) => (it.id === lineId ? { ...it, qty: newQty } : it));
+    dispatch(setServer(optimistic));
+    // trigger pulse animation
+    setRecentUpdated((p) => ({ ...p, [lineId]: true }));
+    if (animTimers.current[lineId]) {
+      try { clearTimeout(animTimers.current[lineId]); } catch {}
+    }
+    animTimers.current[lineId] = setTimeout(() => {
+      setRecentUpdated((p) => { const n = { ...p }; delete n[lineId]; return n; });
+      delete animTimers.current[lineId];
+    }, 560);
+    setLineErrors((p) => { const n = { ...p }; delete n[lineId]; return n; });
+
+    if (pendingTimers.current[lineId]) {
+      try { clearTimeout(pendingTimers.current[lineId]); } catch {}
+    }
+
+    pendingTimers.current[lineId] = setTimeout(async () => {
+      setUpdatingLines((p) => ({ ...p, [lineId]: true }));
+      try {
+        const { data } = await axios.patch(
+          "/cart/update",
+          { id: lineId, qty: pendingDesired.current[lineId], location_id: locationId },
+          { withCredentials: true }
+        );
+        if (data?.items) dispatch(setServer(data.items || []));
+        else dispatch(setServer(items.map((it) => (it.id === lineId ? { ...it, qty: pendingDesired.current[lineId] } : it))));
+      } catch (err) {
+        const snap = pendingSnapshot.current[lineId] ?? items.map((it) => ({ ...it }));
+        dispatch(setServer(snap));
+        const available = Number(err?.response?.data?.available);
+        if (!Number.isNaN(available) && available >= 0) {
+          setLineErrors((p) => ({ ...p, [lineId]: available === 0 ? 'Out of stock' : `Only ${available} available` }));
+        } else {
+          setLineErrors((p) => ({ ...p, [lineId]: 'Could not update quantity' }));
+        }
+      } finally {
+        setUpdatingLines((p) => { const n = { ...p }; delete n[lineId]; return n; });
+        try { clearTimeout(pendingTimers.current[lineId]); } catch {}
+        delete pendingTimers.current[lineId];
+        delete pendingDesired.current[lineId];
+        delete pendingSnapshot.current[lineId];
+      }
+    }, DEBOUNCE_MS);
   };
+
+  useEffect(() => {
+    return () => {
+      Object.values(pendingTimers.current).forEach((t) => {
+        try { clearTimeout(t); } catch {};
+      });
+      pendingTimers.current = {};
+      pendingDesired.current = {};
+      pendingSnapshot.current = {};
+      Object.values(animTimers.current).forEach((t) => {
+        try { clearTimeout(t); } catch {};
+      });
+      animTimers.current = {};
+    };
+  }, []);
 
   const removeLine = async (line) => {
     if (!user) {
@@ -101,7 +179,7 @@ export default function MiniCart({ onClose }) {
     <div aria-modal="true" role="dialog" className="fixed inset-0 z-[9999] pointer-events-auto">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-[1px]" onClick={onClose} />
       <div
-        className="absolute right-0 top-0 h-full w-[360px] max-w-[90vw] will-change-transform translate-x-0 animate-slideIn border-l"
+        className="mini-cart-panel absolute right-0 top-0 h-full w-[360px] max-w-[90vw] will-change-transform translate-x-0 animate-slideIn border-l overflow-x-hidden"
         style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}
       >
         {/* Header */}
@@ -121,14 +199,14 @@ export default function MiniCart({ onClose }) {
         </div>
 
         {/* Lines */}
-        <div className="h-[calc(100%-148px)] overflow-auto px-3 py-2 space-y-3">
-          {loading && <div className="text-sm opacity-80">Loading…</div>}
+  <div className="mini-cart-lines h-[calc(100%-148px)] overflow-y-auto overflow-x-hidden px-3 py-2 space-y-3">
+                {loading && <div className="text-sm opacity-80">Loading…</div>}
           {!loading && items.length === 0 && (
             <div className="text-sm opacity-80">Your cart is empty.</div>
           )}
 
-          {!loading &&
-            items.map((it) => {
+        {!loading &&
+      items.map((it) => {
               const qty = Math.floor(it.qty || 0);
               const price = safePrice(it.price);
 
@@ -145,7 +223,7 @@ export default function MiniCart({ onClose }) {
               return (
                 <div
                   key={`${it.id}-${it.variationId ?? "v0"}`}
-                  className="flex gap-3 rounded-xl border p-2"
+                  className={`flex gap-3 rounded-xl border p-2 ${recentUpdated[it.id] ? 'optimistic-pulse' : ''}`}
                   style={{ borderColor: "var(--color-border)" }}
                 >
                   {/* ✅ Image → Link if pid resolved */}
@@ -188,20 +266,36 @@ export default function MiniCart({ onClose }) {
                         to={`/products/${pid}`}
                         onClick={onClose}
                         state={locationId ? { locationId } : null}
-                        className="truncate text-sm hover:underline hover:text-sky-400 focus-visible:underline outline-none transition"
+                        className="text-sm break-words whitespace-normal leading-snug hover:underline hover:text-sky-400 focus-visible:underline outline-none transition"
                         aria-label={`View details for ${nameText}`}
                       >
                         {nameText}
                       </Link>
                     ) : (
-                      <div className="truncate text-sm">{nameText}</div>
+                      <div className="text-sm break-words whitespace-normal leading-snug">{nameText}</div>
                     )}
 
                     <div className="mt-1 text-sm">$ {price.toFixed(2)}</div>
-                    <div className="mt-1 flex items-center gap-2">
-                      <button className="icon-btn" onClick={() => changeQty(it, qty - 1)}>-</button>
-                      <span className="w-8 text-center text-sm">{qty}</span>
-                      <button className="icon-btn" onClick={() => changeQty(it, qty + 1)}>+</button>
+                    <div className="mt-1">
+                      {(() => {
+                        const isUpdating = !!updatingLines[it.id];
+                        const err = lineErrors[it.id];
+                        return (
+                          <>
+                            <div className="flex items-center gap-2">
+                              <button className="icon-btn" onClick={() => changeQty(it, qty - 1)} disabled={isUpdating}>-</button>
+                              <span className="w-8 text-center text-sm">{isUpdating ? <span className="opacity-70">…</span> : qty}</span>
+                              <button className="icon-btn" onClick={() => changeQty(it, qty + 1)} disabled={isUpdating}>+</button>
+                              {/* pending (debounced) indicator: small dot when an update is scheduled but not yet sent */}
+                              {(!isUpdating && pendingTimers.current[it.id]) && (
+                                <span className="ml-2 text-xs text-muted">•</span>
+                              )}
+                              {isUpdating && <span className="text-xs text-muted ml-2">Updating…</span>}
+                            </div>
+                            {err && <div className="text-xs mt-1 text-red-500">{err}</div>}
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
 
@@ -233,7 +327,17 @@ export default function MiniCart({ onClose }) {
       {/* Component-scoped theme-aware styles */}
       <style>{`
         @keyframes slideIn { from { transform: translateX(24px); opacity: .0; } to { transform: translateX(0); opacity: 1; } }
-        .animate-slideIn { animation: slideIn .18s ease-out; }
+  .animate-slideIn { animation: slideIn .18s ease-out; }
+
+  /* Prevent horizontal scrollbars */
+  .mini-cart-panel { box-sizing: border-box; }
+  .mini-cart-lines { box-sizing: border-box; }
+  .mini-cart-lines::-webkit-scrollbar { width: 10px; }
+  .mini-cart-lines::-webkit-scrollbar-horizontal { display: none; }
+  .mini-cart-lines { scrollbar-width: thin; }
+
+  /* Allow long unbroken tokens (e.g., huge variant names / SKUs) to wrap */
+  .mini-cart-panel a, .mini-cart-panel div { word-break: break-word; }
 
         /* Light defaults */
         :root, [data-theme="light"] {
@@ -268,4 +372,5 @@ export default function MiniCart({ onClose }) {
     </div>,
     document.body
   );
+  
 }

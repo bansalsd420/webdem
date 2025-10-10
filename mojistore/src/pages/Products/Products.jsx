@@ -1,6 +1,7 @@
 // src/pages/Products/Products.jsx
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import api from '../../api/axios.js';
 import ProductCard from '../../components/ProductCard/ProductCard.jsx';
 import '../../styles/filters.css';
@@ -17,6 +18,23 @@ const toUSD = (v) => {
     return `$${n.toFixed(2)}`;
   }
 };
+
+// Robust in-stock detector: support multiple shapes returned by various APIs/ERPs
+function isProductInStock(p) {
+  // explicit boolean true
+  if (p?.inStock === true) return true;
+  // snake_case or alternate boolean-like values
+  if (p?.in_stock === true) return true;
+  if (p?.inStock === 'true' || p?.inStock === '1' || p?.in_stock === 'true' || p?.in_stock === 1) return true;
+  // explicit stock strings
+  if (p?.stock === 'in_stock' || p?.stock_status === 'in_stock') return true;
+  // numeric quantities
+  if (typeof p?.qty === 'number' && p.qty > 0) return true;
+  if (typeof p?.available_qty === 'number' && p.available_qty > 0) return true;
+  // last-resort: treat numeric truthy values as in-stock
+  if (typeof p?.inStock === 'number' && p.inStock > 0) return true;
+  return false;
+}
 
 export default function Products() {
   const [sp, setSp] = useSearchParams();
@@ -42,6 +60,70 @@ export default function Products() {
   const [qInput, setQInput] = useState(urlFilters.q);
   useEffect(() => { setQInput(urlFilters.q); }, [urlFilters.q]);
   const dq = useDebouncedValue(urlFilters.q, 300);
+  // product-page local debounced input for suggestions
+  const dqInput = useDebouncedValue(qInput, 250);
+
+  const navigate = useNavigate();
+
+  // ---------- suggestions (Products page) ----------
+  const [suggestions, setSuggestions] = useState([]);
+  const [openSug, setOpenSug] = useState(false);
+  const sugRef = useRef(null);
+  const inputRef = useRef(null);
+  const [activeIdx, setActiveIdx] = useState(-1);
+
+  useEffect(() => {
+    let alive = true;
+    const ctrl = new AbortController();
+    const term = (dqInput || '').trim();
+    if (!term) {
+      setSuggestions([]);
+      setOpenSug(false);
+      setActiveIdx(-1);
+      return;
+    }
+    (async () => {
+      try {
+        const { data } = await api.get('/search/suggest', {
+          params: { q: term }, withCredentials: true, signal: ctrl.signal,
+        });
+        if (!alive) return;
+        const arr = Array.isArray(data) ? data : [];
+        setSuggestions(arr);
+        setActiveIdx(-1);
+        setOpenSug(arr.length > 0);
+      } catch (e) {
+        if (!alive) return;
+        setSuggestions([]); setOpenSug(false); setActiveIdx(-1);
+      }
+    })();
+    return () => { alive = false; ctrl.abort(); };
+  }, [dqInput]);
+
+  // close suggestions on outside click / escape
+  useEffect(() => {
+    const onDoc = (e) => { if (sugRef.current && !sugRef.current.contains(e.target)) setOpenSug(false); };
+    const onKey = (e) => {
+      if (!openSug) return;
+      if (e.key === 'Escape') setOpenSug(false);
+      if (e.key === 'ArrowDown') setActiveIdx(i => Math.min(suggestions.length - 1, i + 1));
+      if (e.key === 'ArrowUp') setActiveIdx(i => Math.max(0, i - 1));
+      if (e.key === 'Enter') {
+        if (activeIdx >= 0 && suggestions[activeIdx]) {
+          e.preventDefault();
+          const s = suggestions[activeIdx];
+          if (s.type === 'product') navigate(`/products/${s.id}`);
+          else if (s.type === 'category') setQuery({ category: s.id, q: undefined, page: 1 });
+          else if (s.type === 'brand') setQuery({ brand: s.id, q: undefined, page: 1 });
+          else setQuery({ q: s.label || '', page: 1 });
+          setOpenSug(false);
+        }
+      }
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
+  }, [openSug, suggestions, activeIdx]);
 
   // unified URL setter
   const setQuery = (updates, replace = false) => {
@@ -151,28 +233,41 @@ export default function Products() {
     const ctrl = new AbortController();
     (async () => {
       setLoading(true);
+      // Debugging: surface the URL-derived filters so we can trace why the UI shows no products
+      // debug logs removed
       try {
-        const params = withLocation({
+        // Build base params from URL-derived filters
+        const baseParams = {
           q: dq || '',
           category: urlFilters.category,
           subcategory: urlFilters.subcategory,
           brand: urlFilters.brand,
           page: urlFilters.page,
           limit: urlFilters.limit,
-          inStock: urlFilters.instock ? 1 : undefined,
-        });
+          instock: urlFilters.instock ? 1 : undefined,
+        };
+
+        // If the legacy `location` query param is present in the URL (Navbar sets this when navigating),
+        // use it as a fallback for attaching to API requests when the in-memory location store hasn't
+        // been bootstrapped yet. withLocation() will prefer the store value when available.
+        const urlLoc = sp.get('location');
+        if (urlLoc) {
+          try {
+            const n = Number(urlLoc);
+            if (Number.isFinite(n)) {
+              baseParams.locationId = n;
+              baseParams.location_id = n;
+              // debug log removed
+            }
+          } catch (e) { /* ignore parse errors */ }
+        }
+
+        const params = withLocation(baseParams);
+  // removed debug logging
         const resp = await api.get('/products', { params, withCredentials: true, signal: ctrl.signal });
         const data = resp.data;
 
         let arr = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
-        if (urlFilters.instock) {
-          arr = arr.filter(p =>
-            p.inStock === true ||
-            p.stock === 'in_stock' || p.stock_status === 'in_stock' ||
-            (typeof p.qty === 'number' && p.qty > 0) ||
-            (typeof p.available_qty === 'number' && p.available_qty > 0)
-          );
-        }
         if (!alive) return;
 
         // normalize price fields for the card: backend may return minPrice or price_display
@@ -182,7 +277,8 @@ export default function Products() {
           _priceText: (p.minPrice ?? p.price_display) != null ? toUSD(p.minPrice ?? p.price_display) : null,
         }));
 
-        setItems(normalized);
+  setItems(normalized);
+  // removed debug logging
 
         if (typeof data?.total === 'number') setTotal(data.total);
         else {
@@ -349,12 +445,51 @@ export default function Products() {
               className="w-full sm:w-80 md:w-96"
             >
               <div className="relative">
-                <input
-                  placeholder="Search products…"
-                  className="filters-input w-full h-8 pr-8"
-                  value={qInput}
-                  onChange={(e) => setQInput(e.target.value)}
-                />
+                <div ref={sugRef} className="relative">
+                  <input
+                    ref={inputRef}
+                    placeholder="Search products…"
+                    className="filters-input w-full h-8 pr-8"
+                    value={qInput}
+                    onChange={(e) => setQInput(e.target.value)}
+                    onFocus={() => { if (suggestions.length) setOpenSug(true); }}
+                  />
+
+                  <div className={`absolute left-0 right-0 mt-1 z-50`}>
+                    {openSug && suggestions.length > 0 && (
+                      <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} className="rounded-lg border bg-zinc-900 border-zinc-800 overflow-hidden" role="listbox" aria-label="Product suggestions">
+                        {suggestions.map((s, idx) => (
+                          <button
+                            key={`${s.type}:${s.id}:${idx}`}
+                            type="button"
+                            className={`w-full text-left px-3 py-2 hover:bg-zinc-800 ${idx === activeIdx ? 'bg-zinc-800' : ''} sug-grid`}
+                            role="option"
+                            aria-selected={idx === activeIdx}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              if (s.type === 'product') navigate(`/products/${s.id}`);
+                              else if (s.type === 'category') setQuery({ category: s.id, q: undefined, page: 1 });
+                              else if (s.type === 'brand') setQuery({ brand: s.id, q: undefined, page: 1 });
+                              else setQuery({ q: s.label || '', page: 1 });
+                              setOpenSug(false);
+                            }}
+                            onMouseEnter={() => setActiveIdx(idx)}
+                          >
+                            {s.thumbUrl ? (
+                              <img className="sug-thumb" src={s.thumbUrl} alt="" loading="eager" decoding="async" />
+                            ) : (
+                              <div className="sug-thumb sug-thumb--empty" aria-hidden="true" />
+                            )}
+                            <div className="sug-text truncate">{s.label}</div>
+                            <div style={{ marginLeft: 'auto', fontSize: 11, opacity: 0.7 }}>
+                              <span className="inline-block px-2 py-0.5 rounded bg-zinc-800">{s.type}</span>
+                            </div>
+                          </button>
+                        ))}
+                      </motion.div>
+                    )}
+                  </div>
+                </div>
                 {qInput && (
                   <button
                     type="button"
@@ -410,11 +545,7 @@ export default function Products() {
                   name: p.name,
                   sku: p.sku,
                   image: p.image || null,
-                  inStock:
-                    p.inStock === true ||
-                    p.stock === 'in_stock' || p.stock_status === 'in_stock' ||
-                    (typeof p.qty === 'number' && p.qty > 0) ||
-                    (typeof p.available_qty === 'number' && p.available_qty > 0),
+                  inStock: isProductInStock(p),
                   // price fields (support both old and new card props)
                   minPrice: p.minPrice ?? null,            // numeric for logic
                   priceText: p._priceText ?? null,         // formatted USD for display (if your card uses it)

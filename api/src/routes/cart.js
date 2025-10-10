@@ -3,6 +3,8 @@ import { Router } from 'express';
 import { pool } from '../db.js';
 import { authRequired } from '../middleware/auth.js';
 import { priceGroupIdForContact, priceForVariation } from '../lib/price.js';
+import cache from '../lib/cache.js';
+import catVis from '../lib/categoryVisibility.js';
 
 const router = Router();
 const BIZ = Number(process.env.BUSINESS_ID || 0);
@@ -79,7 +81,7 @@ async function loadCartDTO(cartId, cid, locationId) {
   // Load lines with location-aware stock
   const [rows] = await pool.query(
     `SELECT i.id, i.product_id, i.variation_id, i.qty,
-            p.name AS product_name, p.image AS product_image, p.sku AS product_sku,
+            p.name AS product_name, p.image AS product_image, p.sku AS product_sku, p.category_id AS category_id,
             v.sub_sku AS variation_sku, v.name AS variation_name, v.id AS v_id,
             s.qty_available AS qty_here
        FROM app_cart_items i
@@ -117,7 +119,16 @@ async function loadCartDTO(cartId, cid, locationId) {
       };
     })
   );
-  return { id: cartId, items };
+  // Filter items by category visibility for this contact (if cid provided)
+  try {
+    const hidden = await catVis.hiddenCategorySet(Number(process.env.BUSINESS_ID || 0), cid);
+    const filtered = items.filter(it => !catVis.isHiddenByCategoryIds(hidden, it?.category_id || null, null));
+    return { id: cartId, items: filtered };
+  } catch (e) {
+    // On error, return full items (fail open) but log
+    console.error('[cart] visibility filter failed', e && e.message ? e.message : e);
+    return { id: cartId, items };
+  }
 }
 
 /* ------------------------------ GET ------------------------------ */
@@ -199,9 +210,17 @@ router.post('/add', authRequired, async (req, res) => {
       );
     }
 
+    // Best-effort invalidate product list caches (stock/availability changed for this location)
+    try {
+      await cache.invalidateByKey('products:v1:*');
+    } catch (e) { console.error('[cart] invalidate products after add failed', e && e.message ? e.message : e); }
+
     // return updated cart
     const cid = getCid(req);
     const dto = await loadCartDTO(cartId, cid, locationId);
+    try {
+      await cache.invalidateByKey('products:v1:*');
+    } catch (e) { console.error('[cart] invalidate products after update failed', e && e.message ? e.message : e); }
     res.json(dto);
   } catch (e) {
     console.error('POST /api/cart/add failed', e);
@@ -256,6 +275,9 @@ router.patch('/update', authRequired, async (req, res) => {
     const cartId = await ensureCartForLocation(uid, locationId);
     const cid = getCid(req);
     const dto = await loadCartDTO(cartId, cid, locationId);
+    try {
+      await cache.invalidateByKey('products:v1:*');
+    } catch (e) { console.error('[cart] invalidate products after remove failed', e && e.message ? e.message : e); }
     res.json(dto);
   } catch (e) {
     console.error('PATCH /api/cart/update failed', e);
@@ -312,12 +334,19 @@ router.post('/validate', authRequired, async (req, res) => {
 
     // Fetch stock for all variations at this location in one round-trip
     const ids = lines.map(l => Number(l.variation_id)).filter(Boolean);
-    const [stockRows] = await pool.query(
-      `SELECT variation_id, qty_available
-         FROM variation_location_details
-        WHERE location_id = :l AND variation_id IN (${ids.map(() => '?').join(',')})`,
-      [locationId, ...ids]
-    );
+    let stockRows = [];
+    if (ids.length) {
+      const placeholders = ids.map(() => '?').join(',');
+      const sql = `
+        SELECT variation_id, qty_available
+          FROM variation_location_details
+         WHERE location_id = ? AND variation_id IN (${placeholders})
+      `;
+      const [rows] = await pool.query(sql, [locationId, ...ids]);
+      stockRows = rows;
+    } else {
+      stockRows = [];
+    }
     const stockMap = new Map(stockRows.map(r => [Number(r.variation_id), Number(r.qty_available) || 0]));
 
     const report = lines.map(l => {

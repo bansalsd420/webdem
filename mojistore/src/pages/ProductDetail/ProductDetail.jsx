@@ -74,7 +74,7 @@ export default function ProductDetail() {
   const [rowAdding, setRowAdding] = useState({});
   const [addingAll, setAddingAll] = useState(false);
   const [wishMsg, setWishMsg] = useState("");
-  const [addAllToast, setAddAllToast] = useState("");
+  // addAllToast moved to global app:toast events
   const [alertMsg, setAlertMsg] = useState("");
 
   // Sync location
@@ -218,14 +218,18 @@ export default function ProductDetail() {
     if (scope?.type === "row" && scope.id) setRowAdding((p) => ({ ...p, [scope.id]: true }));
 
     try {
-      await axios.post(
-        "/cart/add",
-        { product_id: Number(id), variation_id: variationId, quantity }, // snake_case
-        { withCredentials: true } // location is attached by your interceptor/policy
-      );
+      // Attach current location to the request body so the API can validate/route the cart
+      const body = withLocation({ product_id: Number(id), variation_id: variationId, quantity });
+      const resp = await axios.post("/cart/add", body, { withCredentials: true });
 
-      const { data: cart } = await axios.get("/cart", { withCredentials: true });
-      dispatch(setServer(cart?.items || []));
+      // If API returned the updated cart, sync it (avoid an extra GET)
+      if (resp?.data?.items) {
+        try { window.dispatchEvent(new CustomEvent('cart:updated', { detail: { items: resp.data.items } })); } catch {}
+      } else {
+        // Defensive fallback: fetch cart for current location
+        const { data: cart } = await axios.get("/cart", { withCredentials: true, params: withLocation({}) });
+        dispatch(setServer(cart?.items || []));
+      }
       uiConfirm();
     } catch (e) {
       // If API returns 409 with {error:'insufficient_stock', available}
@@ -273,8 +277,7 @@ export default function ProductDetail() {
       return next;
     });
     setAddingAll(false);
-    setAddAllToast(success ? `Added ${success} item(s) to your cart` : `Nothing added`);
-    setTimeout(() => setAddAllToast(""), 1600);
+  window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'success', msg: success ? `Added ${success} item(s) to your cart` : 'Nothing added' } }));
   };
 
   const anyRowQty = useMemo(
@@ -758,13 +761,7 @@ export default function ProductDetail() {
                       </button>
                     </div>
 
-                    {addAllToast && (
-                      <div className="mt-3 flex justify-end">
-                        <div className="rounded-md bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 px-3 py-2 text-sm shadow-sm">
-                          {addAllToast}
-                        </div>
-                      </div>
-                    )}
+                    {/* toasts are global via window 'app:toast' events */}
                   </>
                 )}
               </div>

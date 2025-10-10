@@ -24,6 +24,7 @@ import Documents from './pages/Account/tabs/Documents.jsx';
 
 // Shared
 import ScrollToTop from './components/ScrollToTop.jsx';
+import Toasts from './components/Toast.jsx';
 
 // Pages
 import Home from './pages/Home/Home.jsx';
@@ -75,73 +76,26 @@ function AccountSkeleton() {
 
 /** Don’t redirect until cookie session is probed once */
 function RequireAuth({ children }) {
-  const { user } = (typeof useAuth === 'function' ? useAuth() : { user: null });
+  const { user, loading } = (typeof useAuth === 'function' ? useAuth() : { user: null, loading: true });
   const loc = useLocation();
-
-  const [state, setState] = useState(user ? 'ready' : 'checking');
-
-  useEffect(() => {
-    let alive = true;
-    if (user) {
-      setState('ready');
-      return () => { };
-    }
-    (async () => {
-      try {
-        const resp = await api.get('/account/me', {
-          withCredentials: true,
-          validateStatus: () => true,
-        });
-        if (!alive) return;
-        setState(resp.status === 200 ? 'ready' : 'denied');
-      } catch {
-        if (alive) setState('denied');
-      }
-    })();
-    return () => { alive = false; };
-  }, [user]);
-
-  if (state === 'checking') return <AccountSkeleton />; // <— previously `null`
-  if (state === 'ready') return children;
-
+  if (loading) return <AccountSkeleton />;
+  if (user) return children;
   const next = encodeURIComponent(loc.pathname + loc.search);
   return <Navigate to={`/login?next=${next}`} replace />;
 }
 
 /** Hide /login, /register, /reset when already authenticated */
 function RedirectIfAuthed({ children }) {
-  const { user } = (typeof useAuth === 'function' ? useAuth() : { user: null });
-  const [isAuthed, setIsAuthed] = useState(user ? true : null);
-
-  useEffect(() => {
-    let alive = true;
-    if (user) {
-      setIsAuthed(true);
-      return () => { };
-    }
-    (async () => {
-      try {
-        const resp = await api.get('/account/me', {
-          withCredentials: true,
-          validateStatus: () => true,
-        });
-        if (!alive) return;
-        setIsAuthed(resp.status === 200);
-      } catch {
-        if (alive) setIsAuthed(false);
-      }
-    })();
-    return () => { alive = false; };
-  }, [user]);
-
-  if (isAuthed === null) return null;
-  if (isAuthed === true) return <Navigate to="/account?tab=profile" replace />; // landing -> Profile
+  const { user, loading } = (typeof useAuth === 'function' ? useAuth() : { user: null, loading: true });
+  if (loading) return null; // or a small inline skeleton if desired
+  if (user) return <Navigate to="/account?tab=profile" replace />;
   return children;
 }
 
 export default function App() {
   return (
     <>
+      <Toasts />
       <ScrollToTop />
       <FiltersProvider>
         <Routes>

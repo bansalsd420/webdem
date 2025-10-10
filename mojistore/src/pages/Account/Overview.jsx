@@ -1,6 +1,7 @@
 // Overview — compact sticky sidebar with computed stats (no API changes)
 import { useEffect, useState } from "react";
 import api from "../../api/axios";
+import { hasAuthCookie } from "../../utils/auth";
 
 export default function Overview() {
   const [me, setMe] = useState(null);
@@ -15,7 +16,8 @@ export default function Overview() {
     let alive = true;
     (async () => {
       try {
-        const { data: meData } = await api.get("/account/me");
+        if (!hasAuthCookie()) return; // anonymous session: skip
+        const { data: meData } = await api.get("/account/me", { withCredentials: true, validateStatus: () => true });
         if (!alive) return;
         setMe(meData || null);
 

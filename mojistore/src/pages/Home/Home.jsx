@@ -267,6 +267,7 @@ function BrandsSection({ items = [], loading }) {
   const outerRef = useRef(null);
   const rafRef = useRef(null);
   const paused = useRef(false);
+  const railRef = useRef(null);
 
   const renderItems = useMemo(
     () => (items?.length ? items.concat(items) : []),
@@ -289,6 +290,13 @@ function BrandsSection({ items = [], loading }) {
     return () => cancelAnimationFrame(rafRef.current);
   }, [loading, renderItems]);
 
+  const scrollBrands = (dir = 1) => {
+    const el = railRef.current || outerRef.current;
+    if (!el) return;
+    const delta = (el.firstElementChild ? el.firstElementChild.getBoundingClientRect().width : 160) + 12;
+    el.scrollBy({ left: dir * delta, behavior: 'smooth' });
+  };
+
   return (
     <section className="home-brands">
       <div className="brands-head">
@@ -300,8 +308,9 @@ function BrandsSection({ items = [], loading }) {
         onMouseEnter={() => (paused.current = true)}
         onMouseLeave={() => (paused.current = false)}
       >
+        <button className="rail-nav prev" aria-label="Scroll brands left" onClick={() => scrollBrands(-1)}>‹</button>
         <div
-          ref={outerRef}
+          ref={(el) => { outerRef.current = el; railRef.current = el; }}
           className="brand-rail no-scrollbar"
           role="list"
           aria-label="Brand logos"
@@ -324,6 +333,7 @@ function BrandsSection({ items = [], loading }) {
         </div>
         <div className="brand-fade left" />
         <div className="brand-fade right" />
+        <button className="rail-nav next" aria-label="Scroll brands right" onClick={() => scrollBrands(1)}>›</button>
       </div>
     </section>
   );
@@ -520,12 +530,7 @@ function normalizeCard(p) {
     sku: p.sku,
     image: p.image || null,
     // in discovery mode we hide this anyway; still normalize for other pages
-    inStock:
-      p.inStock === true ||
-      p.stock === "in_stock" ||
-      p.stock_status === "in_stock" ||
-      (typeof p.qty === "number" && p.qty > 0) ||
-      (typeof p.available_qty === "number" && p.available_qty > 0),
+    inStock: isProductInStock(p),
     minPrice: p.minPrice ?? null,
     category: p.category,
     sub_category: p.sub_category,
@@ -534,6 +539,18 @@ function normalizeCard(p) {
     category_name: p.category_name,
     sub_category_name: p.sub_category_name,
   };
+}
+
+// Reuse the same robust in-stock detector used elsewhere
+function isProductInStock(p) {
+  if (p?.inStock === true) return true;
+  if (p?.in_stock === true) return true;
+  if (p?.inStock === 'true' || p?.inStock === '1' || p?.in_stock === 'true' || p?.in_stock === 1) return true;
+  if (p?.stock === 'in_stock' || p?.stock_status === 'in_stock') return true;
+  if (typeof p?.qty === 'number' && p.qty > 0) return true;
+  if (typeof p?.available_qty === 'number' && p.available_qty > 0) return true;
+  if (typeof p?.inStock === 'number' && p.inStock > 0) return true;
+  return false;
 }
 
 

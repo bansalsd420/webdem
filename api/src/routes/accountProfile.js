@@ -159,6 +159,45 @@ router.put('/profile', authRequired, async (req, res) => {
   const updates = allowProfileUpdate(req.body || {});
   if (!Object.keys(updates).length) return res.status(400).json({ error: 'empty_update' });
 
+  // Connector-first update: update remote ERP contact before committing local DB changes.
+  // This keeps upstream as the source-of-truth and avoids drift.
+  const remoteContact = await fetchContact(idn).catch(() => null);
+  const remoteId = remoteContact && (remoteContact.id || remoteContact.contact_id || idn.cid);
+
+  // Build connector payload with defensive required keys
+  const deriveNameParts = (str) => {
+    if (!str || typeof str !== 'string') return ['',''];
+    const parts = str.trim().split(/\s+/);
+    const first = parts.shift() || '';
+    const last = parts.length ? parts.join(' ') : '';
+    return [first, last];
+  };
+
+  const [givenFirst, givenLast] = deriveNameParts(updates.name || remoteContact?.name);
+  const connectorPayload = {};
+  if ('name' in updates) connectorPayload.name = updates.name;
+  if ('company' in updates) connectorPayload.supplier_business_name = updates.company;
+  if ('mobile' in updates) connectorPayload.mobile = updates.mobile;
+
+  connectorPayload.first_name = remoteContact?.first_name || givenFirst || '';
+  connectorPayload.last_name = remoteContact?.last_name || givenLast || '';
+  connectorPayload.type = remoteContact?.type || 'customer';
+
+  if (Object.keys(connectorPayload).length && remoteId) {
+    try {
+      await erpFetch(`/contactapi/${remoteId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(connectorPayload),
+        query: { business_id: BIZ },
+      });
+    } catch (err) {
+      console.error('PUT /api/account/profile connector update failed', err);
+      return res.status(502).json({ error: 'connector_update_failed', details: err?.body || err?.message });
+    }
+  }
+
+  // Local DB update (transactional)
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -179,9 +218,11 @@ router.put('/profile', authRequired, async (req, res) => {
     await conn.commit();
     // bust cache
     cache.profile.delete(`${BIZ}:${idn.cid}`);
+    cache.addresses.delete(`${BIZ}:${idn.cid}`);
     return res.json({ ok: true });
   } catch (e) {
     await conn.rollback();
+    console.error('PUT /api/account/profile update_failed', e);
     return res.status(500).json({ error: 'update_failed' });
   } finally {
     conn.release();
@@ -225,6 +266,240 @@ router.get('/addresses', authRequired, async (req, res) => {
     return res.json(rows);
   } catch {
     return res.status(200).json([]); // keep UI calm
+  }
+});
+
+// PATCH /api/account/addresses
+// Body examples:
+// { type: 'Shipping', address: { line1, line2, city, state, country, zip }, name?, phone? }
+// { type: 'Billing',  address: { ... } }
+// { type: 'Both', billing: { ... }, shipping: { ... } }
+// Only provided address objects are validated & updated. Unspecified fields remain unchanged.
+router.patch('/addresses', authRequired, async (req, res) => {
+  try {
+    const idn = await getIdentity(req);
+    if (!idn?.cid) return res.status(400).json({ error: 'missing_contact_id' });
+
+    const body = req.body || {};
+    const type = String(body.type || '').toLowerCase();
+
+    const wantBilling = type === 'billing' || type === 'both';
+    const wantShipping = type === 'shipping' || type === 'both';
+
+    const updates = {};
+
+    function normalizeInputAddress(obj) {
+      if (!obj || typeof obj !== 'object') return null;
+      const line1 = (obj.line1 || obj.address_line_1 || '').trim();
+      const line2 = (obj.line2 || obj.address_line_2 || '').trim();
+      const city = (obj.city || '').trim();
+      const state = (obj.state || '').trim();
+      const country = (obj.country || '').trim();
+      const zip = (obj.zip || obj.zip_code || '').trim();
+      const has = (v) => typeof v === 'string' && v.length;
+      // Basic validation: require line1 + country (city optional but recommended) for a meaningful address.
+      if (!has(line1) || !has(country)) return { invalid: true, line1, country };
+      return { line1, line2, city, state, country, zip };
+    }
+
+    let billingIn = null;
+    let shippingIn = null;
+    if (wantBilling) billingIn = normalizeInputAddress(body.address || body.billing);
+    if (wantShipping) shippingIn = normalizeInputAddress(body.address || body.shipping);
+
+    // Accept a shipping-only single-line update payload like { shipping: { line1: '...' } }
+    // Some clients will only edit the single-line `shipping_address` and won't provide
+    // country/structured fields. NormalizeInputAddress will mark such payloads as
+    // invalid (because country is missing). If that happens and the client did send
+    // shipping.line1, override the invalid result with a minimal shipping object so
+    // single-line updates are accepted.
+    if (wantShipping) {
+      const hasSingleLine = body && body.shipping && typeof body.shipping.line1 === 'string' && body.shipping.line1.trim();
+      if ((!shippingIn || shippingIn.invalid) && hasSingleLine) {
+        shippingIn = {
+          line1: body.shipping.line1.trim(),
+          line2: (body.shipping.line2 || '').trim(),
+          city: '',
+          state: '',
+          country: '',
+          zip: ''
+        };
+      }
+    }
+
+    if (wantBilling && billingIn && billingIn.invalid) return res.status(400).json({ error: 'invalid_billing_address' });
+    if (wantShipping && shippingIn && shippingIn.invalid) return res.status(400).json({ error: 'invalid_shipping_address' });
+    if (!wantBilling && !wantShipping) return res.status(400).json({ error: 'type_required' });
+    if (!billingIn && !shippingIn) return res.status(400).json({ error: 'no_address_payload' });
+
+    // Optional name / phone updates (mirrors profile logic lightly)
+    const name = typeof body.name === 'string' ? body.name.trim() : null;
+    const phone = typeof body.phone === 'string' ? body.phone.trim() : null;
+
+    // Resolve connector contact and update the remote contact first (connector-first approach)
+    const remoteContact = await fetchContact(idn);
+    const remoteId = remoteContact && (remoteContact.id || remoteContact.contact_id || idn.cid);
+
+    // Build connector payload (use single-line shipping_address since connector samples use that)
+    const connectorPayload = {};
+    if (name) connectorPayload.name = name;
+    if (phone) connectorPayload.mobile = phone;
+
+    // Ensure connector receives first_name / last_name keys which some connector
+    // implementations require. Derive from provided `name` when possible, else
+    // fall back to remote contact fields (if available) or empty string.
+    const deriveNameParts = (str) => {
+      if (!str || typeof str !== 'string') return ['',''];
+      const parts = str.trim().split(/\s+/);
+      const first = parts.shift() || '';
+      const last = parts.length ? parts.join(' ') : '';
+      return [first, last];
+    };
+
+    const [givenFirst, givenLast] = deriveNameParts(name || remoteContact?.name);
+    const firstName = remoteContact?.first_name || givenFirst || '';
+    const lastName = remoteContact?.last_name || givenLast || '';
+    // Always include the keys so connector-side validation that expects them won't fail.
+    connectorPayload.first_name = firstName;
+    connectorPayload.last_name = lastName;
+  // Some connector implementations require a contact `type` ('customer'|'supplier').
+  // Prefer the remoteContact.type if present; otherwise default to 'customer'.
+  connectorPayload.type = remoteContact?.type || 'customer';
+    if (billingIn && !billingIn.invalid) {
+      connectorPayload.address_line_1 = billingIn.line1;
+      if (billingIn.line2) connectorPayload.address_line_2 = billingIn.line2;
+      if (billingIn.city) connectorPayload.city = billingIn.city;
+      if (billingIn.state) connectorPayload.state = billingIn.state;
+      if (billingIn.country) connectorPayload.country = billingIn.country;
+      if (billingIn.zip) connectorPayload.zip_code = billingIn.zip;
+    }
+    if (shippingIn && !shippingIn.invalid) {
+      const composed = [shippingIn.line1, shippingIn.line2, shippingIn.city, shippingIn.state, shippingIn.country, shippingIn.zip].filter(Boolean).join(', ');
+      connectorPayload.shipping_address = composed || shippingIn.line1;
+      // Some connectors may accept shipping_* fields but samples primarily show shipping_address; keep payload minimal.
+    }
+
+    if (Object.keys(connectorPayload).length) {
+      if (!remoteId) {
+        console.error('PATCH /api/account/addresses: unable to resolve remote contact id', { idn, remoteContact });
+        return res.status(502).json({ error: 'connector_contact_unresolved' });
+      }
+      try {
+        await erpFetch(`/contactapi/${remoteId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(connectorPayload),
+          query: { business_id: BIZ },
+        });
+      } catch (err) {
+        console.error('PATCH /api/account/addresses connector update failed', err);
+        return res.status(502).json({ error: 'connector_update_failed', details: err?.body || err?.message });
+      }
+    }
+
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const sets = [];
+      const params = { cid: idn.cid, bid: BIZ };
+
+      if (name) { sets.push('name = :name'); params.name = name; }
+      if (phone) { sets.push('mobile = :phone'); params.phone = phone; }
+
+      if (billingIn && !billingIn.invalid) {
+        sets.push('address_line_1 = :b_line1'); params.b_line1 = billingIn.line1;
+        sets.push('address_line_2 = :b_line2'); params.b_line2 = billingIn.line2 || null;
+        sets.push('city = :b_city'); params.b_city = billingIn.city || null;
+        sets.push('state = :b_state'); params.b_state = billingIn.state || null;
+        sets.push('country = :b_country'); params.b_country = billingIn.country || null;
+        sets.push('zip_code = :b_zip'); params.b_zip = billingIn.zip || null;
+      }
+
+      if (shippingIn && !shippingIn.invalid) {
+        // Some deployments have different shipping column names (shipping_address_line_1 vs shipping_address_line1)
+        // Inspect contacts columns once and set only the existing ones. Always set a composed shipping_address fallback
+        const [cols] = await conn.query("SHOW COLUMNS FROM contacts");
+        const colSet = new Set((cols || []).map((c) => c.Field));
+
+        const sLine1Col = colSet.has('shipping_address_line_1') ? 'shipping_address_line_1' : (colSet.has('shipping_address_line1') ? 'shipping_address_line1' : null);
+        const sLine2Col = colSet.has('shipping_address_line_2') ? 'shipping_address_line_2' : (colSet.has('shipping_address_line2') ? 'shipping_address_line2' : null);
+        const sCityCol  = colSet.has('shipping_city') ? 'shipping_city' : null;
+        const sStateCol = colSet.has('shipping_state') ? 'shipping_state' : null;
+        const sCountryCol = colSet.has('shipping_country') ? 'shipping_country' : null;
+        const sZipCol = colSet.has('shipping_zip_code') ? 'shipping_zip_code' : (colSet.has('shipping_zip') ? 'shipping_zip' : null);
+
+        if (sLine1Col) { sets.push(`${sLine1Col} = :s_line1`); params.s_line1 = shippingIn.line1; }
+        if (sLine2Col) { sets.push(`${sLine2Col} = :s_line2`); params.s_line2 = shippingIn.line2 || null; }
+        if (sCityCol)  { sets.push(`${sCityCol} = :s_city`); params.s_city = shippingIn.city || null; }
+        if (sStateCol) { sets.push(`${sStateCol} = :s_state`); params.s_state = shippingIn.state || null; }
+        if (sCountryCol){ sets.push(`${sCountryCol} = :s_country`); params.s_country = shippingIn.country || null; }
+        if (sZipCol)   { sets.push(`${sZipCol} = :s_zip`); params.s_zip = shippingIn.zip || null; }
+
+        // Compose a single-line fallback shipping_address for legacy consumers and set it when the column exists
+        const composed = [shippingIn.line1, shippingIn.line2, shippingIn.city, shippingIn.state, shippingIn.country, shippingIn.zip].filter(Boolean).join(', ');
+        if (colSet.has('shipping_address') || !sLine1Col) {
+          sets.push('shipping_address = :s_full'); params.s_full = composed || shippingIn.line1;
+        }
+      }
+
+      if (!sets.length) return res.status(400).json({ error: 'nothing_to_update' });
+
+      await conn.query(
+        `UPDATE contacts SET ${sets.join(', ')} WHERE id = :cid AND business_id = :bid LIMIT 1`,
+        params
+      );
+      await conn.commit();
+    } catch (e) {
+      await conn.rollback();
+      console.error('PATCH /api/account/addresses failed', e);
+      return res.status(500).json({ error: 'update_failed' });
+    } finally {
+      conn.release();
+    }
+
+    // Invalidate address/profile cache for this user
+    cache.addresses.delete(`${BIZ}:${idn.cid}`);
+    cache.profile.delete(`${BIZ}:${idn.cid}`);
+
+    // Return fresh addresses list
+    try {
+      req.body = {}; // avoid reusing validation bits
+      // Reuse GET logic by manually invoking fetch path
+      const [[c]] = await pool.query(
+        `SELECT id, name, mobile, phone,
+                address_line_1, address_line_2, city, state, country, zip_code, address,
+                shipping_address, shipping_address_line_1, shipping_address_line_2,
+                shipping_city, shipping_state, shipping_country, shipping_zip_code
+           FROM contacts
+          WHERE id = :cid AND business_id = :bid
+          LIMIT 1`,
+        { cid: idn.cid, bid: BIZ }
+      );
+      if (!c) return res.json([]);
+
+      const bill = normalizeAddress({
+        address_line_1: c.address_line_1,
+        address_line_2: c.address_line_2,
+        city: c.city, state: c.state, country: c.country, zip_code: c.zip_code,
+        address: c.address,
+      });
+      const ship = normalizeAddress({
+        address_line_1: c.shipping_address_line_1 ?? c.shipping_address,
+        address_line_2: c.shipping_address_line_2 ?? '',
+        city: c.shipping_city ?? '', state: c.shipping_state ?? '',
+        country: c.shipping_country ?? '', zip_code: c.shipping_zip_code ?? '',
+        address: c.shipping_address ?? '',
+      });
+      const rows = [
+        { type: 'Billing',  name: c.name || '', phone: c.mobile || c.phone || '', full: bill.full,  raw: bill },
+        { type: 'Shipping', name: c.name || '', phone: c.mobile || c.phone || '', full: ship.full || bill.full, raw: ship.full ? ship : bill, is_default: true },
+      ];
+      return res.json(rows);
+    } catch {
+      return res.json([]);
+    }
+  } catch {
+    return res.status(500).json({ error: 'server_error' });
   }
 });
 

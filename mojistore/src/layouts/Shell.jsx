@@ -3,6 +3,7 @@ import { useSideNav } from './SideNavContext.jsx';
 import '../components/SideNav/sidenav.css';   // <— ensure CSS is bundled
 import './shell.css';
 
+
 export default function Shell({ children }) {
   const { open } = useSideNav();
   return (

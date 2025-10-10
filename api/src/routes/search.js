@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
+import { erpGetAny, listFrom } from '../lib/erp.js';
+import catVis from '../lib/categoryVisibility.js';
 
 const router = Router();
 const BIZ = Number(process.env.BUSINESS_ID);
@@ -13,12 +15,34 @@ router.get('/suggest', async (req, res) => {
   if (!q) return res.json([]);
 
   const like = `%${q.replace(/%/g, '')}%`;
+  // Try ERP connector first (best-effort). If the connector is available and
+  // returns product matches, prefer those results (they're fresher & richer).
+  try {
+    const qobj = { business_id: BIZ, per_page: 8, page: 1, name: q, search: q };
+    const { data: erpData } = await erpGetAny(['/new_product', '/product', '/productapi', '/products'], { query: qobj });
+    const list = listFrom(erpData || []);
+    if (Array.isArray(list) && list.length) {
+      const out = list.slice(0, 8).map(p => {
+        const id = p?.id ?? p?.product_id ?? null;
+        const name = p?.name ?? p?.product_name ?? '';
+        const sku = p?.sku ?? p?.product_sku ?? p?.code ?? '';
+        const thumb = p?.image ?? p?.product_image ?? (Array.isArray(p?.images) ? p.images[0] : null) ?? null;
+        return { type: 'product', id, label: `${name} \u00b7 ${sku}`.trim(), thumbUrl: thumb || null };
+      }).filter(x => x.id && x.label);
+      if (out.length) return res.json(out);
+    }
+  } catch (erpErr) {
+    // If ERP fails, we'll silently fall back to local DB queries below.
+    // Log at debug level so operators can inspect later.
+    console.error('[search] ERP suggest failed, falling back to DB', erpErr?.status || erpErr?.message || erpErr);
+  }
 
+  // DB fallback: return mixed suggestions (products, categories, brands)
   const [products] = await pool.query(
-    `SELECT id, name, sku FROM products
+    `SELECT id, name, sku, image, category_id, sub_category_id FROM products
      WHERE business_id=:bid AND is_inactive=0 AND not_for_selling=0
        AND (name LIKE :like OR sku LIKE :like)
-     ORDER BY name LIMIT 6`,
+     ORDER BY name LIMIT 12`,
     { bid: BIZ, like }
   );
 
@@ -35,11 +59,22 @@ router.get('/suggest', async (req, res) => {
     { like }
   );
 
-  res.json([
-    ...products.map(p => ({ type: 'product', id: p.id, label: `${p.name} · ${p.sku}` })),
-    ...cats.map(c => ({ type: 'category', id: c.id, label: c.name })),
-    ...brands.map(b => ({ type: 'brand', id: b.id, label: b.name }))
-  ]);
+  try {
+    const hidden = await catVis.hiddenCategorySet(BIZ, null);
+    const prodFiltered = products.filter(p => !catVis.isHiddenByCategoryIds(hidden, p.category_id, p.sub_category_id));
+    res.json([
+      ...prodFiltered.map(p => ({ type: 'product', id: p.id, label: `${p.name} \u00b7 ${p.sku}`, thumbUrl: p.image || null })),
+      ...cats.map(c => ({ type: 'category', id: c.id, label: c.name })),
+      ...brands.map(b => ({ type: 'brand', id: b.id, label: b.name }))
+    ]);
+  } catch (e) {
+    console.error('[search] visibility filter failed', e && e.message ? e.message : e);
+    res.json([
+      ...products.map(p => ({ type: 'product', id: p.id, label: `${p.name} \u00b7 ${p.sku}`, thumbUrl: p.image || null })),
+      ...cats.map(c => ({ type: 'category', id: c.id, label: c.name })),
+      ...brands.map(b => ({ type: 'brand', id: b.id, label: b.name }))
+    ]);
+  }
 });
 
 export default router;

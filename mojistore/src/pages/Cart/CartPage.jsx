@@ -1,5 +1,5 @@
 // src/pages/Cart/CartPage.jsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import axios from "../../api/axios.js";
 import { useDispatch, useSelector } from "react-redux";
@@ -13,7 +13,7 @@ import {
 } from "../../redux/slices/cartSlice.js";
 import { useAuth } from "../../state/auth.jsx";
 import SmartImage from "../../components/SmartImage.jsx";
-import { getLocationId } from "../../utils/locations";
+import { getLocationId, withLocation } from "../../utils/locations";
 
 export default function CartPage() {
   const nav = useNavigate();
@@ -25,28 +25,73 @@ export default function CartPage() {
   const [loading, setLoading] = useState(true);
   const [validating, setValidating] = useState(false);
   const [nowTick, setNowTick] = useState(Date.now());
+  const [updatingLines, setUpdatingLines] = useState({}); // { lineId: true }
+  const [lineErrors, setLineErrors] = useState({});
+  const pendingTimers = useRef({});
+  const pendingDesired = useRef({});
+  const pendingSnapshot = useRef({});
+  const DEBOUNCE_MS = 200; // tuned for UX — coalesce rapid taps but still feel snappy
+  const animTimers = useRef({});
+  const [recentUpdated, setRecentUpdated] = useState({});
 
-  const locationId = getLocationId();
+  const [selectedLocationId, setSelectedLocationId] = useState(() => getLocationId());
+  const locationId = selectedLocationId;
+
+  useEffect(() => {
+    const onLoc = (e) => setSelectedLocationId(getLocationId());
+    window.addEventListener('location:changed', onLoc);
+    return () => window.removeEventListener('location:changed', onLoc);
+  }, []);
+
+  // Dedup/debounce in-flight cart loads to avoid multiple simultaneous GETs
+  const fetchInFlight = useRef({ key: null, controller: null });
 
   const load = async () => {
+    if (!user) return; // only server cart for logged-in users
+    const key = `${user?.id ?? 'anon'}:${locationId ?? 'noloc'}`;
+
+    // If a matching request is already inflight, skip starting another
+    if (fetchInFlight.current.key === key && fetchInFlight.current.controller) return;
+
+    // Abort previous unrelated request
+    try {
+      if (fetchInFlight.current.controller) {
+        try { fetchInFlight.current.controller.abort(); } catch {};
+      }
+    } catch {}
+
+    const ctrl = new AbortController();
+    fetchInFlight.current = { key, controller: ctrl };
+
     setLoading(true);
     try {
-      if (user) {
-        const { data } = await axios.get("/cart", {
-          withCredentials: true,
-          params: { location_id: locationId },
-        });
-        dispatch(setServer(data?.items || []));
+      const { data } = await axios.get("/cart", {
+        withCredentials: true,
+        signal: ctrl.signal,
+        params: withLocation({}),
+      });
+      dispatch(setServer(data?.items || []));
+    } catch (err) {
+      if (axios.isCancel?.(err) || err?.name === 'CanceledError') {
+        // aborted — ignore
+      } else {
+        console.error('Failed to load cart', err);
       }
     } finally {
       setLoading(false);
+      // clear only if it's our controller
+      if (fetchInFlight.current.controller === ctrl) fetchInFlight.current = { key: null, controller: null };
     }
   };
 
   // Load cart (logged-in) — when user or location changes
   useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // small debounce to coalesce quick successive changes (auth/location updates)
+    const id = setTimeout(() => {
+      void load();
+    }, 80);
+    return () => clearTimeout(id);
+    // intentionally only depend on user and locationId
   }, [user, locationId]);
 
   // Expire validation pass after validThrough
@@ -80,12 +125,12 @@ export default function CartPage() {
     [items]
   );
 
-  const changeQty = async (line, nextQty) => {
+  const changeQty = (line, nextQty) => {
     const newQty = Math.max(0, Math.floor(nextQty || 0));
     dispatch(invalidateValidation());
 
     if (!user) {
-      // local (guest) — delta add
+      // local (guest) — delta add immediately
       const delta = newQty - Math.floor(line.qty || 0);
       if (delta !== 0) {
         dispatch(
@@ -104,14 +149,90 @@ export default function CartPage() {
       return;
     }
 
-    // logged-in — server handles, returns updated cart
-    const { data } = await axios.patch(
-      "/cart/update",
-      { id: line.id, qty: newQty, location_id: locationId },
-      { withCredentials: true }
-    );
-    dispatch(setServer(data?.items || []));
+    const lineId = line.id;
+    if (Math.floor(line.qty || 0) === newQty) return;
+
+    // store snapshot once per optimistic update lifecycle (first change)
+    if (!pendingSnapshot.current[lineId]) {
+      pendingSnapshot.current[lineId] = items.map((it) => ({ ...it }));
+    }
+
+    // store latest desired qty
+    pendingDesired.current[lineId] = newQty;
+
+    // apply optimistic items immediately and trigger pulse animation
+    const optimistic = items.map((it) => (it.id === lineId ? { ...it, qty: newQty } : it));
+    dispatch(setServer(optimistic));
+    setRecentUpdated((p) => ({ ...p, [lineId]: true }));
+    // clear any existing anim timer
+    if (animTimers.current[lineId]) {
+      try { clearTimeout(animTimers.current[lineId]); } catch {}
+    }
+    animTimers.current[lineId] = setTimeout(() => {
+      setRecentUpdated((p) => { const n = { ...p }; delete n[lineId]; return n; });
+      delete animTimers.current[lineId];
+    }, 560);
+    setLineErrors((p) => { const n={...p}; delete n[lineId]; return n; });
+
+    // reset any existing timer
+    if (pendingTimers.current[lineId]) {
+      try { clearTimeout(pendingTimers.current[lineId]); } catch {}
+    }
+
+    // schedule the server update after debounce
+    pendingTimers.current[lineId] = setTimeout(async () => {
+      setUpdatingLines((p) => ({ ...p, [lineId]: true }));
+      try {
+        const { data } = await axios.patch(
+          "/cart/update",
+          { id: lineId, qty: pendingDesired.current[lineId], location_id: locationId },
+          { withCredentials: true }
+        );
+        if (data?.items) dispatch(setServer(data.items || []));
+        else dispatch(setServer(items.map((it) => (it.id === lineId ? { ...it, qty: pendingDesired.current[lineId] } : it))));
+      } catch (err) {
+        // rollback to snapshot
+        const snap = pendingSnapshot.current[lineId] ?? items.map((it) => ({ ...it }));
+        dispatch(setServer(snap));
+        const available = Number(err?.response?.data?.available);
+        if (!Number.isNaN(available) && available >= 0) {
+          const msg = available === 0 ? 'Out of stock' : `Only ${available} available`;
+          setLineErrors((p) => ({ ...p, [lineId]: msg }));
+          try { window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', msg } })); } catch {}
+          try { window.dispatchEvent(new CustomEvent('app:announce', { detail: { message: msg } })); } catch {}
+        } else {
+          const msg = 'Could not update quantity';
+          setLineErrors((p) => ({ ...p, [lineId]: msg }));
+          try { window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', msg } })); } catch {}
+          try { window.dispatchEvent(new CustomEvent('app:announce', { detail: { message: msg } })); } catch {}
+        }
+      } finally {
+        setUpdatingLines((p) => { const n = { ...p }; delete n[lineId]; return n; });
+        // cleanup pending state
+        try { clearTimeout(pendingTimers.current[lineId]); } catch {}
+        delete pendingTimers.current[lineId];
+        delete pendingDesired.current[lineId];
+        delete pendingSnapshot.current[lineId];
+      }
+    }, DEBOUNCE_MS);
   };
+
+  // cleanup timers on unmount to avoid leaks
+  useEffect(() => {
+    return () => {
+      Object.values(pendingTimers.current).forEach((t) => {
+        try { clearTimeout(t); } catch {};
+      });
+      pendingTimers.current = {};
+      pendingDesired.current = {};
+      pendingSnapshot.current = {};
+      Object.values(animTimers.current).forEach((t) => {
+        try { clearTimeout(t); } catch {};
+      });
+      animTimers.current = {};
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const removeLine = async (line) => {
     dispatch(invalidateValidation());
@@ -210,7 +331,7 @@ export default function CartPage() {
                   return (
                     <div
                       key={`${it.id}-${it.variationId ?? it.variation_id ?? "v0"}`}
-                      className="flex gap-3 rounded-xl p-3"
+                      className={`flex gap-3 rounded-xl p-3 ${recentUpdated[it.id] ? 'optimistic-pulse' : ''}`}
                       style={{
                         border: "1px solid var(--color-border)",
                         background: "var(--color-surface-2)",
@@ -278,32 +399,64 @@ export default function CartPage() {
                           </div>
                         )}
 
-                        <div className="mt-2 flex items-center gap-2">
-                          <button
-                            className="rounded-md border px-2"
-                            style={{
-                              borderColor: "var(--color-border)",
-                              background: "var(--color-surface)",
-                            }}
-                            onClick={() => changeQty(it, qty - 1)}
-                            aria-label="Decrease quantity"
-                          >
-                            −
-                          </button>
-                          <span className="w-8 text-center text-sm">
-                            {qty}
-                          </span>
-                          <button
-                            className="rounded-md border px-2"
-                            style={{
-                              borderColor: "var(--color-border)",
-                              background: "var(--color-surface)",
-                            }}
-                            onClick={() => changeQty(it, qty + 1)}
-                            aria-label="Increase quantity"
-                          >
-                            +
-                          </button>
+                        <div className="mt-2">
+                          {/* quantity controls with per-line updating state */}
+                          {(() => {
+                            const isUpdating = !!updatingLines[it.id];
+                            const err = lineErrors[it.id];
+                            return (
+                              <>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    className="rounded-md border px-2"
+                                    style={{
+                                      borderColor: "var(--color-border)",
+                                      background: "var(--color-surface)",
+                                    }}
+                                    onClick={() => changeQty(it, qty - 1)}
+                                    aria-label="Decrease quantity"
+                                    disabled={isUpdating}
+                                    aria-busy={isUpdating}
+                                  >
+                                    −
+                                  </button>
+
+                                  <span className="w-8 text-center text-sm">
+                                    {isUpdating ? <span className="opacity-70">…</span> : qty}
+                                  </span>
+
+                                  <button
+                                    className="rounded-md border px-2"
+                                    style={{
+                                      borderColor: "var(--color-border)",
+                                      background: "var(--color-surface)",
+                                    }}
+                                    onClick={() => changeQty(it, qty + 1)}
+                                    aria-label="Increase quantity"
+                                    disabled={isUpdating}
+                                    aria-busy={isUpdating}
+                                  >
+                                    +
+                                  </button>
+
+                                  {/* pending (debounced) indicator */}
+                                  {(!isUpdating && pendingTimers.current[it.id]) && (
+                                    <span className="ml-2 text-xs text-muted">•</span>
+                                  )}
+
+                                  {isUpdating && (
+                                    <span className="text-xs text-muted ml-2">Updating…</span>
+                                  )}
+                                </div>
+
+                                {err && (
+                                  <div className="text-xs mt-1 text-red-500">
+                                    {err}
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
                         </div>
                       </div>
 
@@ -378,6 +531,7 @@ export default function CartPage() {
           </div>
         </div>
       )}
+      
     </div>
   );
 }

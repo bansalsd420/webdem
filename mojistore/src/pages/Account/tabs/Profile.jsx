@@ -20,6 +20,7 @@ export default function Profile() {
 
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ name: "", company: "", phone: "" });
+  const [saving, setSaving] = useState(false);
   const cacheRef = useRef({ data: null, ts: 0 }); // simple 120s memo
 
   const TTL = 120 * 1000;
@@ -75,6 +76,7 @@ export default function Profile() {
   }, [editing, profile]);
 
   const onSave = async () => {
+    setSaving(true);
     try {
       const payload = {
         name: form.name?.trim(),
@@ -86,10 +88,14 @@ export default function Profile() {
         validateStatus: () => true,
       });
       if (res.status !== 200) throw new Error(res.data?.error || "update_failed");
-      setEditing(false);
-      await load(true);
+  setEditing(false);
+  await load(true);
+  window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'success', msg: 'Profile updated' } }));
     } catch (e) {
-      alert(e?.message || "Update failed");
+  const msg = e?.message || "Update failed";
+  window.dispatchEvent(new CustomEvent('app:toast', { detail: { type: 'error', msg } }));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -128,7 +134,8 @@ export default function Profile() {
       )}
 
       {/* Profile details / edit card */}
-      <section className="rounded-2xl p-4 border border-white/10 bg-white/5">
+      <section className="relative rounded-2xl p-4 border border-white/10 bg-white/5">
+        {/* toasts are global via window 'app:toast' events */}
         <div className="flex items-center justify-between">
           <h3 className="text-base font-semibold">Profile</h3>
           {!editing ? (
@@ -198,11 +205,20 @@ export default function Profile() {
                 Cancel
               </button>
               <button
-                className="rounded-lg px-3 py-2"
+                className={"rounded-lg px-3 py-2 " + (saving ? "btn-spin" : "")}
                 style={{ background: "var(--color-primary)", color: "var(--color-on-primary)" }}
                 onClick={onSave}
+                disabled={saving}
+                aria-busy={saving}
               >
-                Save changes
+                {saving ? (
+                  <>
+                    <span className="spinner" aria-hidden="true" />
+                    Saving…
+                  </>
+                ) : (
+                  'Save changes'
+                )}
               </button>
             </div>
           </div>

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import cache from '../lib/cache.js';
 
 const router = Router();
 
@@ -51,27 +52,43 @@ async function fetchAccessTokenVia(path) {
 
 async function fetchAccessToken() {
   if (STATIC_BEARER) return STATIC_BEARER;
-  const candidates = [TOKEN_PATH_ENV, '/connector/oauth/token', '/connector/api/oauth/token'];
-  let last = { status: 0, body: null };
-  for (const p of candidates) {
-    const r = await fetchAccessTokenVia(p);
-    if (r.ok) {
-      const j = await r.json();
-      const ttl = Number(j.expires_in || 3600);
-      tokenCache = {
-        access_token: j.access_token,
-        expires_at: Date.now() + Math.max(30_000, (ttl - 15) * 1000),
-      };
-      return tokenCache.access_token;
+  const tokenCandidates = [TOKEN_PATH_ENV, '/connector/oauth/token', '/connector/api/oauth/token'];
+    let last = { path: null, status: 0, body: null };
+    for (const p of tokenCandidates) {
+      const r = await fetchAccessTokenVia(p);
+      if (r.ok) {
+        const j = await r.json();
+        const ttl = Number(j.expires_in || 3600);
+        tokenCache = {
+          access_token: j.access_token,
+          expires_at: Date.now() + Math.max(30_000, (ttl - 15) * 1000),
+        };
+        return tokenCache.access_token;
+      }
+      last = { path: p, status: r.status, body: await safeJson(r) };
+      if (![404, 405].includes(r.status)) break;
     }
-    last = { status: r.status, body: await safeJson(r) };
-    if (![404, 405].includes(r.status)) break;
-  }
-  const err = new Error(`oauth_failed ${last.status}`);
-  err.status = last.status || 500;
-  err.body = last.body;
-  throw err;
+    const err = new Error(`oauth_failed ${last.status} (${String(last.path)})`);
+    err.status = last.status || 500;
+    err.body = last.body;
+    throw err;
 }
+
+// Lightweight debug helper route: returns the token candidate probe results.
+// GET /api/locations/_debug_token
+router.get('/_debug_token', async (_req, res) => {
+  const results = [];
+  for (const p of tokenCandidates) {
+    try {
+      const r = await fetchAccessTokenVia(p);
+      const body = await safeJson(r);
+      results.push({ path: p, url: joinUrl(BASE, p), status: r.status, ok: r.ok, body });
+    } catch (e) {
+      results.push({ path: p, url: joinUrl(BASE, p), status: e?.status || null, ok: false, error: String(e?.message || e) });
+    }
+  }
+  res.json({ base: BASE, prefix: PREFIX, candidates: results });
+});
 
 async function getAccessToken() {
   if (STATIC_BEARER) return STATIC_BEARER;
@@ -143,6 +160,15 @@ function normalizeLocation(row) {
 /* ---------- Route ---------- */
 router.get('/', async (_req, res) => {
   try {
+    const CACHE_TTL = Number(process.env.LOCATIONS_CACHE_TTL_MS || 5 * 60 * 1000);
+    const cacheKey = `locations:v1:biz-${BIZ}`;
+    const hit = cache.get(cacheKey);
+    if (hit) {
+      res.setHeader('X-Cache', 'HIT');
+      res.setHeader('Cache-Control', 'public, max-age=300'); // 5 min
+      return res.json(hit);
+    }
+
     const { data } = await connectorGetAny(
       ['/business-location', '/location', '/locations', '/business-locations'],
       { query: { business_id: Number.isFinite(BIZ) ? BIZ : undefined, per_page: 200, status: 1 } }
@@ -163,9 +189,18 @@ router.get('/', async (_req, res) => {
     }
     out.sort((a, b) => a.name.localeCompare(b.name));
 
+    // Cache output in-process; TTL configurable via LOCATIONS_CACHE_TTL_MS
+    cache.set(cacheKey, out, CACHE_TTL);
+    res.setHeader('X-Cache', 'MISS');
     res.setHeader('Cache-Control', 'public, max-age=300'); // 5 min
     return res.json(out); // <<— ONLY real locations (no "All")
   } catch (e) {
+    // Treat 404 from the connector as a graceful 'no route' (fallbacks were tried).
+    // Avoid noisy logs for this expected condition; still log other errors.
+    if (e?.status === 404) {
+      console.debug('locations (connector) route not found, falling back to empty set');
+      return res.status(502).json([]);
+    }
     console.error('locations (connector) error', e?.status || '', e?.body || e);
     // Return empty so the client can disable picker / show an error state.
     return res.status(502).json([]);

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
+import cache from '../lib/cache.js';
 import { authRequired } from '../middleware/auth.js';
 
 const router = Router();
@@ -33,6 +34,9 @@ router.post('/:productId', authRequired, async (req, res) => {
     'INSERT IGNORE INTO app_wishlists (user_id, product_id) VALUES (:u, :p)',
     { u: uid, p: pid }
   );
+  try {
+    await cache.invalidateByKey(`wishlist:v1:user:${uid}`);
+  } catch (e) { console.error('[wishlist] invalidate failed', e && e.message ? e.message : e); }
   res.json({ ok: true });
 });
 
@@ -47,6 +51,9 @@ router.delete('/:productId', authRequired, async (req, res) => {
     'DELETE FROM app_wishlists WHERE user_id = :u AND product_id = :p',
     { u: uid, p: pid }
   );
+  try {
+    await cache.invalidateByKey(`wishlist:v1:user:${uid}`);
+  } catch (e) { console.error('[wishlist] invalidate failed', e && e.message ? e.message : e); }
   res.json({ ok: true });
 });
 

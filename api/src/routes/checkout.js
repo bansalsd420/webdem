@@ -3,6 +3,7 @@ import { pool } from '../db.js';
 import { authRequired } from '../middleware/auth.js';
 import { erpFetch } from '../lib/erp.js';
 import { priceGroupIdForContact, priceForVariation } from '../lib/price.js';
+import cache from '../lib/cache.js';
 
 const router = Router();
 const BIZ = Number(process.env.BUSINESS_ID || 0);
@@ -217,6 +218,10 @@ router.post('/create', authRequired, async (req, res) => {
     // ---- Best-effort cart cleanup (does NOT affect success) ----
     const clear = await clearUserCart(uid);
     console.log('[checkout/create] cart cleared', clear);
+    // Best-effort invalidate product list caches since stock/availability may have changed
+    try {
+      await cache.invalidateByKey('products:v1:*');
+    } catch (e) { console.error('[checkout] invalidate products after create failed', e && e.message ? e.message : e); }
 
     return res.json({ ok: true, id, invoice_no, data: resp });
   } catch (e) {

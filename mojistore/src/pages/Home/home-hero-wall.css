@@ -1,153 +1,104 @@
-/* ---------- knobs you can tweak ---------- */
-:root {
-  /* Change this to whatever you like (e.g. 58vh / 60vh) */
-  --home-hero-h: 55vh;
+/* ==========================================================
+   HERO + WALL (clean rewrite)
+   - Single-file, valid CSS
+   - No nested rules; avoids experimental functions
+   - Ensures hero and wall are flush with no gap
+========================================================== */
 
-  /* hero/rail nav colors per theme */
-  --nav-bg: rgba(18, 20, 24, 0.6);
-  --nav-fg: #ffffff;
-  --nav-bg-hover: rgba(18, 20, 24, 0.8);
+:root {
+  /* Increased hero size: larger min, taller preferred, higher max */
+  --home-hero-height: clamp(360px, 60vh, 900px);
+  /* smaller offset moves the dots down toward the very bottom of the hero */
+  --hero-dots-offset: 12px;
+  --hero-nav-size: 56px;
+  --hero-nav-bg: rgba(0,0,0,0.55);
+  --hero-nav-fg: #ffffff;
+  --hero-dot-size: 10px; /* reduced size */
+  --hero-dot-gap: 10px;
+  /* dot colors/borders */
+  --hero-dot-bg: #ffffff; /* opaque by default (dark theme background is white for contrast) */
+  --hero-dot-border: #0b0b0b;
+  --hero-dot-border-width: 2px;
+  --hero-dot-active-bg: var(--color-neon);
+  --hero-dot-active-border: #081018;
+  --wall-row-min: 140px;
+  --wall-row-max-vh: 28vh;
 }
 :root[data-theme="light"] {
-  --nav-bg: rgba(245, 246, 248, 0.85);
-  --nav-fg: #0e1116;
-  --nav-bg-hover: rgba(245, 246, 248, 1);
+  --hero-nav-bg: rgba(255,255,255,0.88);
+  --hero-nav-fg: #0b0b0b;
+  /* in light theme, dots should be solid dark to remain opaque */
+  --hero-dot-bg: #0b0b0b;
+  --hero-dot-border: rgba(255,255,255,0.14);
+  --hero-dot-active-border: rgba(255,255,255,0.22);
 }
 
-/* Root wrapper — edge-to-edge, no gaps */
-.home {
-  background: var(--color-surface);
-  color: var(--color-text);
-}
+.home { background: var(--color-surface); color: var(--color-text); }
 
-/* ---------------------- HERO CAROUSEL ---------------------- */
+/* -------------------- HERO -------------------- */
 .home-hero {
   position: relative;
   width: 100%;
-  height: var(--home-hero-h);
+  height: var(--home-hero-height);
   overflow: hidden;
   isolation: isolate;
+  margin: 0;
   background: var(--color-surface-2);
 }
+.hero-track { display: flex; width: 100%; height: 100%; transition: transform 420ms cubic-bezier(.22,.61,.36,1); will-change: transform; }
+.hero-slide { flex: 0 0 100%; height: 100%; display: block; overflow: hidden; }
+.hero-media { width:100%; height:100%; display:block; overflow:hidden; }
+.hero-media img { width:100%; height:100%; display:block; object-fit:cover; transform-origin:center center; transition: transform 300ms ease, filter 300ms ease; }
+.hero-slide:hover .hero-media img { transform: scale(1.03) translateY(-2px); filter: saturate(1.02); }
 
-.hero-track {
-  display: flex;
-  height: 100%;
-  width: 100%;
-  transition: transform 480ms cubic-bezier(.22, .61, .36, 1);
-  will-change: transform;
-}
+/* overlay nav */
+.hero-nav { position:absolute; top:50%; transform:translateY(-50%); width:var(--hero-nav-size); height:var(--hero-nav-size); border-radius:999px; border:0; background:var(--hero-nav-bg); color:var(--hero-nav-fg); font-size:28px; line-height:var(--hero-nav-size); text-align:center; box-shadow:0 6px 18px rgba(2,6,23,0.2); z-index:40; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; }
+.hero-nav.prev { left:14px; }
+.hero-nav.next { right:14px; }
+.hero-nav:hover { filter:brightness(1.06); }
 
-.hero-slide {
-  flex: 0 0 100%;
-  height: 100%;
-  display: block;
-  overflow: hidden;
-}
-.hero-slide img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover; /* supports GIF/PNG/JPG/WebP without checks */
-  transform-origin: center center;
-  transition: transform 260ms ease, filter 260ms ease;
-  will-change: transform;
-}
-/* Hover: same contained raise+zoom as wall */
-.hero-slide:hover img {
-  transform: scale(1.035) translateY(-3px);
-  filter: saturate(1.02);
-}
-
-/* Nav arrows (bigger glyphs, theme-aware) */
-.hero-nav {
-  position: absolute;
-  top: 50%;
-  width: 46px;
-  height: 46px;
-  border: 0;
-  border-radius: 9999px;
-  transform: translateY(-50%);
-  background: var(--nav-bg);
-  color: var(--nav-fg);
-  font-size: 30px;          /* <<< arrow size */
-  line-height: 46px;        /* centers the glyph */
-  text-align: center;
-  box-shadow: 0 2px 10px rgb(0 0 0 / 20%);
-  cursor: pointer;
-  z-index: 2;
-}
-.hero-nav.prev { left: 12px; }
-.hero-nav.next { right: 12px; }
-.hero-nav:hover { background: var(--nav-bg-hover); }
-
-/* Dots */
-.hero-dots {
-  position: absolute;
-  left: 0; right: 0; bottom: 10px;
-  display: flex; gap: 8px; justify-content: center;
-  z-index: 2;
-}
+/* dots */
+.hero-dots { position:absolute; left:50%; bottom:var(--hero-dots-offset); transform:translateX(-50%); display:flex; gap:var(--hero-dot-gap); align-items:center; z-index:45; pointer-events:auto; }
+.hero-dots::before { display: none; }
 .hero-dots .dot {
-  width: 8px; height: 8px; border-radius: 9999px; border: 0; cursor: pointer;
-  background: color-mix(in sRGB, var(--color-text) 35%, transparent);
+  width:var(--hero-dot-size);
+  height:var(--hero-dot-size);
+  border-radius:50%;
+  background: var(--hero-dot-bg);
+  border: var(--hero-dot-border-width) solid var(--hero-dot-border);
+  box-shadow: 0 6px 14px rgba(2,6,23,0.2);
+  cursor:pointer;
+  transition: transform .14s cubic-bezier(.2,.9,.3,1), background .14s ease, border-color .12s ease, box-shadow .12s ease;
 }
-.hero-dots .dot.active { background: var(--color-neon); }
-/* -------------------- WALL BANNERS (auto-rows; no extra gap) -------------------- */
-.home-wall {
-  width: 100%;
-  display: grid;
-  grid-auto-rows: minmax(150px, 30vh); /* one row per banner that exists */
-  gap: 0;
-  background: var(--color-surface);
-}
-
-.wall-row {
-  display: block;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  background: var(--color-surface-2);
+.hero-dots .dot.active {
+  background: var(--hero-dot-active-bg);
+  border-color: var(--hero-dot-active-border);
+  transform: scale(1.3);
+  box-shadow: 0 10px 30px rgba(2,6,23,0.28);
 }
 
-.wall-media { width: 100%; height: 100%; overflow: hidden; transform: translateZ(0); }
-.wall-media img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transform-origin: center center;
-  transition: transform 260ms ease, filter 260ms ease;
-  will-change: transform;
-}
-.wall-row:hover .wall-media img { transform: scale(1.04) translateY(-4px); filter: saturate(1.02); }
+/* light-theme: dot colors are controlled via :root[data-theme="light"] variables above */
 
-/* Reduced motion */
-@media (prefers-reduced-motion: reduce) {
-  .hero-track { transition: none; }
-  .hero-slide img { transition: none; }
-  .wall-media img { transition: none; }
-}
+/* -------------------- WALL -------------------- */
+.home-wall { width:100%; display:grid; grid-auto-rows: minmax(var(--wall-row-min), var(--wall-row-max-vh)); gap:0; margin:0; background:var(--color-surface); }
 
-/* Mobile tweaks */
-@media (max-width: 640px) {
-  .home-wall { grid-template-rows: repeat(4, minmax(130px, 28vh)); }
-}
+/* force flush layout between hero and wall */
+.home-hero + .home-wall,
+.home-wall,
+.home-wall > * { margin:0 !important; padding:0 !important; }
 
-/* Ultra-wide */
-@media (min-width: 1600px) {
-  .home-hero { height: var(--home-hero-h); } /* leave controlled by var */
-}
-/* No underlines anywhere in hero / wall */
-.home-hero a,
-.home-hero a:hover,
-.home-hero a:focus,
-.home-wall a,
-.home-wall a:hover,
-.home-wall a:focus {
-  text-decoration: none !important;
-  border: 0 !important;
-  background-image: none !important;
-}
+.wall-row { display:block; width:100%; height:100%; overflow:hidden; background:var(--color-surface-2); }
+.wall-media { width:100%; height:100%; display:block; overflow:hidden; transform:translateZ(0); }
+.wall-media img { width:100%; height:100%; display:block; object-fit:cover; transition: transform 300ms ease, filter 300ms ease; }
+.wall-row:hover .wall-media img { transform: scale(1.02) translateY(-2px); filter: saturate(1.02); }
+
+/* accessibility & helpers */
+.home-hero a, .home-hero a:hover, .home-hero a:focus, .home-wall a, .home-wall a:hover, .home-wall a:focus { text-decoration:none !important; border:0 !important; background-image:none !important; }
+
+@media (prefers-reduced-motion: reduce) { .hero-track, .hero-media img, .wall-media img { transition: none !important; } }
+
+@media (max-width: 640px) { :root { --hero-dots-offset:36px; --hero-nav-size:40px; } .home-hero { height: clamp(220px, 38vh, 420px); } .hero-dots::before { min-width: calc((var(--hero-dot-size) + var(--hero-dot-gap)) * 2); } .home-wall { grid-template-rows: repeat(4, minmax(120px, 28vh)); } }
+
+@media (min-width: 1600px) { .home-hero { height: var(--home-hero-height); } }
 
 

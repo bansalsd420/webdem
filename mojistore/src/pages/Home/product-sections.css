@@ -66,12 +66,13 @@
 .rail-nav.next { right: 6px; }
 .rail-nav:hover { background: var(--rail-nav-bg-hover); }
 
-/* Skeletons — theme-aware */
+/* Skeletons — theme-aware and match product card shape */
 .rail-skel,
 .fresh-skel {
   height: 18.5rem;
-  border: 1px solid #272a33;
   border-radius: 16px;
+  /* subtle, theme-aware border using color variables so it doesn't show a hard box */
+  border: 1px solid color-mix(in sRGB, var(--color-surface-2) 10%, transparent);
   background: linear-gradient(90deg, var(--sk-base) 0%, var(--sk-shine) 50%, var(--sk-base) 100%);
   background-size: 200% 100%;
   animation: railPulse 1.1s ease-in-out infinite;

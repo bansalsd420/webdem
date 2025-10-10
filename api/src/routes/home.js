@@ -5,6 +5,8 @@ import { Router } from "express";
 import { pool } from "../db.js";
 import { authOptional } from "../middleware/auth.js";
 import crypto from "crypto";
+import cache from "../lib/cache.js";
+import catVis from "../lib/categoryVisibility.js";
 
 const router = Router();
 
@@ -17,29 +19,8 @@ const HOME_CACHE_MAX = Number(process.env.HOME_CACHE_MAX || 64);
 const HOME_DB_CONCURRENCY = Math.max(1, Number(process.env.HOME_DB_CONCURRENCY || 3));
 const HOME_DB_RETRIES = Math.max(0, Number(process.env.HOME_DB_RETRIES || 1)); // tiny retry for transient errors
 
-// -----------------------------
-// Tiny LRU (no deps)
-// -----------------------------
-class LRU {
-  constructor({ max = 128, ttlMs = 300000 } = {}) {
-    this.max = max; this.ttlMs = ttlMs; this.map = new Map();
-  }
-  _now() { return Date.now(); }
-  get(k) {
-    const e = this.map.get(k);
-    if (!e) return null;
-    if (e.exp && this._now() > e.exp) { this.map.delete(k); return null; }
-    this.map.delete(k); this.map.set(k, e);
-    return e.value;
-  }
-  set(k, v, ttlMs) {
-    const exp = ttlMs === 0 ? 0 : this._now() + (ttlMs ?? this.ttlMs);
-    if (this.map.has(k)) this.map.delete(k);
-    this.map.set(k, { value: v, exp });
-    if (this.map.size > this.max) this.map.delete(this.map.keys().next().value);
-  }
-}
-const cache = new LRU({ max: HOME_CACHE_MAX, ttlMs: HOME_CACHE_TTL_MS });
+// Use shared cache module (in-process LRU + DB invalidation)
+// cache.set/get/del/wrap are available from api/src/lib/cache.js
 
 // -----------------------------
 // Gentle DB access: semaphore + retry
@@ -194,7 +175,15 @@ async function baseTrending(limit = 12) {
     `,
     [BUSINESS_ID, BUSINESS_ID, Number(limit)]
   );
-  return rows.map(mapBase);
+  const mapped = rows.map(mapBase);
+  try {
+    const hidden = await catVis.hiddenCategorySet(BUSINESS_ID, null);
+    if (!hidden || hidden.size === 0) return mapped;
+    return mapped.filter(r => !catVis.isHiddenByCategoryIds(hidden, r.category_id, r.sub_category_id));
+  } catch (e) {
+    console.error('[home] trending visibility filter failed', e && e.message ? e.message : e);
+    return mapped;
+  }
 }
 
 async function baseFresh(limit = 10) {
@@ -211,7 +200,15 @@ async function baseFresh(limit = 10) {
     `,
     [BUSINESS_ID, Number(limit)]
   );
-  return rows.map(mapBase);
+  const mapped = rows.map(mapBase);
+  try {
+    const hidden = await catVis.hiddenCategorySet(BUSINESS_ID, null);
+    if (!hidden || hidden.size === 0) return mapped;
+    return mapped.filter(r => !catVis.isHiddenByCategoryIds(hidden, r.category_id, r.sub_category_id));
+  } catch (e) {
+    console.error('[home] fresh visibility filter failed', e && e.message ? e.message : e);
+    return mapped;
+  }
 }
 
 async function baseBest(limit = 16) {
@@ -239,7 +236,15 @@ async function baseBest(limit = 16) {
     `,
     [BUSINESS_ID, BUSINESS_ID, Number(limit)]
   );
-  return rows.map(mapBase);
+  const mapped = rows.map(mapBase);
+  try {
+    const hidden = await catVis.hiddenCategorySet(BUSINESS_ID, null);
+    if (!hidden || hidden.size === 0) return mapped;
+    return mapped.filter(r => !catVis.isHiddenByCategoryIds(hidden, r.category_id, r.sub_category_id));
+  } catch (e) {
+    console.error('[home] best visibility filter failed', e && e.message ? e.message : e);
+    return mapped;
+  }
 }
 
 // -----------------------------
@@ -277,7 +282,7 @@ router.get("/", authOptional, async (req, res) => {
     });
     const etag = '"' + crypto.createHash("sha1").update(sig).digest("base64") + '"';
 
-    cache.set(cacheKey, { payload, etag });
+  cache.set(cacheKey, { payload, etag }, HOME_CACHE_TTL_MS);
     res.setHeader("ETag", etag);
     res.setHeader("Cache-Control", "public, max-age=120, stale-while-revalidate=600");
     res.json(payload);

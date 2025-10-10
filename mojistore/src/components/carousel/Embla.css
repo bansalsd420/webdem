@@ -18,7 +18,7 @@
 /* Arrows */
 .embla__btn {
   position: absolute; top: 50%; transform: translateY(-50%);
-  z-index: 5; width: 34px; height: 34px; border-radius: 999px;
+  z-index: 12; width: 34px; height: 34px; border-radius: 999px;
   border: 1px solid #2f2f36; background: rgba(18,18,22,.8);
   display: grid; place-items: center; cursor: pointer; user-select: none;
 }
@@ -29,7 +29,8 @@
 /* Hero specific */
 .hero .embla__slide {
   min-width: 100%;
-  height: clamp(180px, 24vw, 420px);
+  /* slightly taller to match page hero increase */
+  height: clamp(200px, 24vw, 440px);
 }
 .hero .embla__slide > * { width: 100%; height: 100%; }
 

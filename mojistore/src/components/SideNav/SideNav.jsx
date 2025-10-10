@@ -1,11 +1,12 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import api from '../../api/axios.js';
+import { getLocations, getLocationId, setLocationId } from '../../utils/locations';
 import { useAuth } from '../../state/auth.jsx';
 import { useSelector } from 'react-redux';
 import { useSideNav } from '../../layouts/SideNavContext.jsx';
 import {
-  Home, Package, User, ListOrdered, ReceiptText, Heart, ShoppingCart, LogIn, LogOut
+  Home, Package, User, ListOrdered, ReceiptText, Heart, ShoppingCart, LogIn, LogOut, MapPin
 } from 'lucide-react';
 
 function readStoredLocationId() {
@@ -30,6 +31,29 @@ export default function SideNav() {
   const { open, closeSideNav } = useSideNav();
   const loc = useLocation();
   const navigate = useNavigate();
+
+
+  // Location picker state (mirror Navbar behavior)
+  const [locOpen, setLocOpen] = useState(false);
+  const [locations, setLocations] = useState(() => getLocations());
+  const [selectedLocId, setSelectedLocId] = useState(() => getLocationId());
+  const selectedLocName = (locations.find((l) => Number(l.id) === Number(selectedLocId))?.name) || '';
+
+  useEffect(() => {
+    const onChange = () => {
+      setLocations(getLocations());
+      setSelectedLocId(getLocationId());
+    };
+    window.addEventListener('location:changed', onChange);
+    onChange();
+    return () => window.removeEventListener('location:changed', onChange);
+  }, []);
+
+  const pickLocation = (l) => {
+    setLocationId(l.id);
+    setLocOpen(false);
+    try { closeSideNav(); } catch {}
+  };
 
   // Close on route change when on small screens
   useEffect(() => {
@@ -66,6 +90,24 @@ export default function SideNav() {
   return (
     <aside className={`ms-sidenav ${open ? 'is-open' : ''}`} data-sidenav-panel aria-label="Main navigation">
       <div className="ms-sidenav-title">Menu</div>
+
+      {/* Location picker (same behaviour as Navbar) */}
+      <div className="ms-sidenav-loc">
+        <button className="item loc-pill" onClick={() => setLocOpen((v) => !v)} aria-haspopup="menu" aria-expanded={locOpen ? 'true' : 'false'}>
+          <MapPin size={16} /> <span>{selectedLocName || 'Select location'}</span>
+        </button>
+        {locOpen && (
+          <div className="loc-menu">
+            {locations.length === 0 && <div className="loc-item">Loading…</div>}
+            {locations.map((l) => (
+              <button key={String(l.id)} className="loc-item" onClick={() => pickLocation(l)}>
+                <span>{l.name}</span>
+                {l.id === selectedLocId && <span>✓</span>}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       <nav className="ms-sidenav-list">
         <Link to="/" className={`item ${activeKey === 'home' ? 'active' : ''}`} onClick={closeSideNav}>
