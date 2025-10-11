@@ -6,6 +6,7 @@ import { pool } from "../db.js";
 import { authOptional } from "../middleware/auth.js";
 import crypto from "crypto";
 import cache from "../lib/cache.js";
+import categoryVisibility from "../lib/categoryVisibility.js";
 
 const router = Router();
 
@@ -240,7 +241,7 @@ router.get("/", authOptional, async (req, res) => {
 
   try {
     // With semaphore, these won't exceed HOME_DB_CONCURRENCY at the DB.
-    const [hero, wall, brands, trending, fresh, bestSellers] = await Promise.all([
+    let [hero, wall, brands, trending, fresh, bestSellers] = await Promise.all([
       getBanners("hero"),
       getBanners("wall"),
       getFeaturedBrands(20),
@@ -248,6 +249,26 @@ router.get("/", authOptional, async (req, res) => {
       baseFresh(10),
       baseBest(16),
     ]);
+
+    // Filter out any products hidden from guests (home is public)
+    try {
+      const shapedTrending = trending.map(p => ({ id: p.id, category_id: p.category_id, sub_category_id: p.sub_category_id }));
+      const allowedTrending = await categoryVisibility.filterProducts(shapedTrending, true, BUSINESS_ID);
+      const allowedTrendingIds = new Set(allowedTrending.map(x => x.id));
+      trending = trending.filter(p => allowedTrendingIds.has(p.id));
+
+      const shapedFresh = fresh.map(p => ({ id: p.id, category_id: p.category_id, sub_category_id: p.sub_category_id }));
+      const allowedFresh = await categoryVisibility.filterProducts(shapedFresh, true, BUSINESS_ID);
+      const allowedFreshIds = new Set(allowedFresh.map(x => x.id));
+      fresh = fresh.filter(p => allowedFreshIds.has(p.id));
+
+      const shapedBest = bestSellers.map(p => ({ id: p.id, category_id: p.category_id, sub_category_id: p.sub_category_id }));
+      const allowedBest = await categoryVisibility.filterProducts(shapedBest, true, BUSINESS_ID);
+      const allowedBestIds = new Set(allowedBest.map(x => x.id));
+      bestSellers = bestSellers.filter(p => allowedBestIds.has(p.id));
+    } catch (e) {
+      console.warn('[home] visibility filter failed', e && e.message ? e.message : e);
+    }
 
     const payload = { hero, wall, brands, trending, fresh, bestSellers };
 

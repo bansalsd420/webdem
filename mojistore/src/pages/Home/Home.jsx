@@ -196,7 +196,7 @@ export default function Home() {
   return (
     <main className="home">
       {/* HERO (55vh) */}
-      <HeroCarousel slides={hero} />
+      <HeroCarousel slides={hero} loading={loading} />
 
         {/* Global modals */}
   <AgeModal companyName={companyName} companyLogo={companyLogo} visible={showAge} onAccept={onAcceptAge} onUnderage={onUnderage} />
@@ -255,7 +255,7 @@ export default function Home() {
 /* =========================================================
    HERO CAROUSEL (auto, arrows, dots) — uses .hero-media wrapper
 ========================================================= */
-function HeroCarousel({ slides = [] }) {
+function HeroCarousel({ slides = [], loading = false }) {
   const [idx, setIdx] = useState(0);
   const [paused, setPaused] = useState(false);
   const count = slides.length || 1;
@@ -271,6 +271,16 @@ function HeroCarousel({ slides = [] }) {
   const go = (next) => setIdx((i) => (i + (next ? 1 : -1) + count) % count);
   const translateX = count > 1 ? `translate3d(${-idx * 100}%, 0, 0)` : "none";
 
+  // If still loading, render a fixed-height placeholder to preserve layout.
+  if (loading && !slides.length) {
+    return (
+      <section className="home-hero hero-placeholder" aria-hidden="true">
+        <div className="hero-placeholder__skeleton" role="img" aria-label="Loading banner">
+          <div className="skeleton-rect hero-skel" />
+        </div>
+      </section>
+    );
+  }
   if (!slides.length) return null;
 
   return (

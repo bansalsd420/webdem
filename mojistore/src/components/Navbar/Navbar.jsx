@@ -206,7 +206,9 @@ export default function Navbar() {
           <Menu size={18} />
         </button>
 
-        <Link to="/" className="brand">Moji Store</Link>
+        <Link to="/" className="brand">
+          <img src={import.meta.env.VITE_MOJISTORE_LOGO_URL || '/placeholder.jpg'} alt="Moji Store" className="brand-logo" />
+        </Link>
 
         <div className="relative loc-wrap" ref={locRef}>
           <button

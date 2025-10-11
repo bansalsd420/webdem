@@ -1,6 +1,6 @@
 // api/account.js
 import { Router } from 'express';
-import { pool } from '../db.js';
+import { pool, queryWithRetry } from '../db.js';
 import { authRequired, authOptional } from '../middleware/auth.js';
 import { streamInvoicePdfHtml } from '../lib/invoicePdf.js';
 // at top with other imports

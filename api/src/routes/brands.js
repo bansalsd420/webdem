@@ -1,6 +1,6 @@
 /* api/src/routes/brands.js */
 import { Router } from 'express';
-import { pool } from '../db.js';
+import { pool, queryWithRetry } from '../db.js';
 import { authOptional } from '../middleware/auth.js';
 
 const router = Router();
@@ -14,7 +14,7 @@ const BIZ = Number(process.env.BUSINESS_ID || 1);
 router.get('/', authOptional, async (req, res) => {
   try {
     const limit = Math.max(1, Math.min(50, Number(req.query.limit || 8)));
-    const [rows] = await pool.query(
+    const [rows] = await queryWithRetry(
       `
       SELECT b.id, b.name, COUNT(p.id) AS product_count
       FROM brands b

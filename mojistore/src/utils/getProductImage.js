@@ -1,5 +1,15 @@
 // src/utils/getProductImage.js
-export function placeholder() { return "../../public/placeholder.jpg"; }
+// Return the runtime public path for the placeholder image.
+// Files placed in Vite's `public/` directory are served from the site root
+// (e.g. /placeholder.jpg) both in dev and after build.
+export function placeholder() {
+  // Respect Vite's base URL so the placeholder resolves correctly after build
+  // (import.meta.env.BASE_URL is set by Vite at build time, defaults to '/')
+  const base = typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.BASE_URL
+    ? import.meta.env.BASE_URL
+    : '/';
+  return `${base.endsWith('/') ? base : base + '/'}placeholder.jpg`;
+}
 
 function extractName(input) {
   if (!input) return "";

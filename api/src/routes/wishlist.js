@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
 import cache from '../lib/cache.js';
+import categoryVisibility from '../lib/categoryVisibility.js';
 import { authRequired } from '../middleware/auth.js';
 
 const router = Router();
@@ -12,7 +13,7 @@ const router = Router();
 router.get('/', authRequired, async (req, res) => {
   const uid = req.user.uid;
   const [rows] = await pool.query(
-    `SELECT p.id, p.name, p.sku, p.image
+    `SELECT p.id, p.name, p.sku, p.image, p.category_id, p.sub_category_id
      FROM app_wishlists w
      JOIN app_auth_users u ON u.id = w.user_id
      JOIN products p ON p.id = w.product_id
@@ -20,7 +21,15 @@ router.get('/', authRequired, async (req, res) => {
      ORDER BY w.created_at DESC`,
     { uid }
   );
-  res.json(rows);
+  try {
+    const shaped = rows.map(r => ({ id: r.id, category_id: r.category_id, sub_category_id: r.sub_category_id }));
+    const allowed = await categoryVisibility.filterProducts(shaped, false, Number(process.env.BUSINESS_ID));
+    const allowedIds = new Set(allowed.map(x => x.id));
+    return res.json(rows.filter(r => allowedIds.has(r.id)));
+  } catch (e) {
+    console.warn('[wishlist] visibility filter failed', e && e.message ? e.message : e);
+    return res.json(rows);
+  }
 });
 
 /**

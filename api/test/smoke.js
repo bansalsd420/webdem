@@ -16,9 +16,16 @@ async function run() {
       const r3 = await fetch(`${base}/products/${id}`);
       const j3 = await r3.json();
       console.log('Test3', r3.status, 'id', j3.id, 'name', j3.name);
+      // Related
+      const r4 = await fetch(`${base}/products/${id}/related`);
+      const j4 = await r4.json();
+      console.log('Test4 related', r4.status, 'count', (Array.isArray(j4) ? j4.length : 0));
     } else {
       console.log('Skipping Test3; no id from Test1');
     }
+    const r5 = await fetch(`${base}/home`);
+    const j5 = await r5.json();
+    console.log('Test5 home', r5.status, Object.keys(j5));
   } catch (e) {
     console.error('Smoke failed:', e.message);
   }

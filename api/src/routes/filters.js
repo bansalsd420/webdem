@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { pool } from '../db.js';
+import { pool, queryWithRetry } from '../db.js';
+import categoryVisibility from '../lib/categoryVisibility.js';
 
 const router = Router();
 const BIZ = Number(process.env.BUSINESS_ID);
@@ -41,11 +42,33 @@ router.get('/', async (req, res) => {
       params.sub = sub;
     }
 
-    // No category visibility enforcement; build whereParts as-is
+    // Exclude hidden categories/subcategories for guests (filters are public)
+    try {
+      const rules = await categoryVisibility.loadRules(BIZ);
+      const hiddenCats = Array.from(rules.guests.byCategory || []);
+      if (hiddenCats.length) {
+        const names = hiddenCats.map((_, i) => `:hid_cat_${i}`);
+        whereParts.push(`p.category_id NOT IN (${names.join(',')})`);
+        hiddenCats.forEach((v, i) => { params[`hid_cat_${i}`] = v; });
+      }
+      // For hidden subs, build a conditional excluding those ids
+      const hiddenSubPairs = [];
+      for (const [cid, sset] of (rules.guests.bySub || new Map())) {
+        for (const sid of sset) hiddenSubPairs.push(sid);
+      }
+      if (hiddenSubPairs.length) {
+        const names = hiddenSubPairs.map((_, i) => `:hid_sub_${i}`);
+        whereParts.push(`(p.sub_category_id IS NULL OR p.sub_category_id NOT IN (${names.join(',')}))`);
+        hiddenSubPairs.forEach((v, i) => { params[`hid_sub_${i}`] = v; });
+      }
+    } catch (e) {
+      // ignore visibility failure
+      console.warn('filters visibility load failed', e && e.message ? e.message : e);
+    }
 
     const where = whereParts.join(' AND ');
 
-    const [brands] = await pool.query(
+      const [brands] = await queryWithRetry(
       `
       SELECT b.id, b.name, COUNT(*) AS count
         FROM products p
@@ -54,10 +77,10 @@ router.get('/', async (req, res) => {
        GROUP BY b.id, b.name
        ORDER BY b.name
        `,
-      { ...params, rowsAsArray: false, timeout: 8000 }   // <- query timeout
+        params
     );
 
-    const [categories] = await pool.query(
+      const [categories] = await queryWithRetry(
       `
       SELECT c.id, c.name, COUNT(*) AS count
         FROM products p
@@ -66,10 +89,10 @@ router.get('/', async (req, res) => {
        GROUP BY c.id, c.name
        ORDER BY c.name
     `,
-      { ...params, rowsAsArray: false, timeout: 8000 }
+        params
     );
 
-    const [subcats] = await pool.query(
+      const [subcats] = await queryWithRetry(
       `
       SELECT sc.id, sc.name, COUNT(*) AS count
         FROM products p
@@ -78,7 +101,7 @@ router.get('/', async (req, res) => {
        GROUP BY sc.id, sc.name
        ORDER BY sc.name
      `,
-      { ...params, rowsAsArray: false, timeout: 8000 }
+        params
     );
 
     res.json({ brands, categories, subcategories: subcats });

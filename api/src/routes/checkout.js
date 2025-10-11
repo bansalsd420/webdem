@@ -172,6 +172,57 @@ router.post('/create', authRequired, async (req, res) => {
     }
     if (!products.length) return res.status(400).json({ error: 'no_valid_lines' });
 
+    // Visibility pre-check: ensure none of the products are hidden for this requester
+    try {
+      // Build shaped items. Some lines may lack product_id (only variation present)
+      const shaped = rawLines.map(l => ({ id: n(l.product_id) || null, variation_id: n(l.variation_id) || null, category_id: null, sub_category_id: null }));
+
+      // Resolve product_id for lines that only have a variation_id
+      const missingPidVids = shaped.filter(s => !s.id && Number.isFinite(s.variation_id)).map(s => s.variation_id);
+      if (missingPidVids.length) {
+        const placeholders = missingPidVids.map(() => '?').join(',');
+        const [vrows] = await pool.query(
+          `SELECT id, product_id FROM variations WHERE id IN (${placeholders})`,
+          missingPidVids
+        );
+        const vidToPid = new Map(vrows.map(r => [Number(r.id), Number(r.product_id)]));
+        for (const s of shaped) {
+          if (!s.id && Number.isFinite(s.variation_id) && vidToPid.has(s.variation_id)) {
+            s.id = vidToPid.get(s.variation_id) || null;
+          }
+        }
+      }
+
+      // Fetch category/subcategory for all resolved product ids
+      const finalPids = Array.from(new Set(shaped.map(s => Number(s.id)).filter(Boolean)));
+      if (finalPids.length) {
+        const placeholders = finalPids.map(() => '?').join(',');
+        const [prows] = await pool.query(
+          `SELECT id, category_id, sub_category_id FROM products WHERE id IN (${placeholders})`,
+          finalPids
+        );
+        const byId = new Map(prows.map(r => [Number(r.id), r]));
+        for (const s of shaped) {
+          const pid = Number(s.id);
+          if (pid && byId.has(pid)) {
+            s.category_id = byId.get(pid).category_id;
+            s.sub_category_id = byId.get(pid).sub_category_id;
+          }
+        }
+      }
+
+      // Perform visibility filter (treat checkout as user view)
+      const allowed = await categoryVisibility.filterProducts(shaped, false, BIZ);
+      const allowedIds = new Set(allowed.map(x => Number(x.id)));
+      const blocked = shaped.filter(s => s.id && !allowedIds.has(Number(s.id))).map(s => s.id);
+      if (blocked.length) {
+        return res.status(404).json({ error: 'product_not_found', blocked });
+      }
+    } catch (e) {
+      console.warn('[checkout] visibility pre-check failed', e && e.message ? e.message : e);
+      // proceed best-effort
+    }
+
     const sell = {
       business_id: BIZ,
       location_id,

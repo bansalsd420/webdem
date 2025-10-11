@@ -4,6 +4,7 @@ import { pool } from '../db.js';
 import { authRequired } from '../middleware/auth.js';
 import { priceGroupIdForContact, priceForVariation } from '../lib/price.js';
 import cache from '../lib/cache.js';
+import categoryVisibility from '../lib/categoryVisibility.js';
 
 const router = Router();
 const BIZ = Number(process.env.BUSINESS_ID || 0);
@@ -118,8 +119,17 @@ async function loadCartDTO(cartId, cid, locationId) {
       };
     })
   );
-  // Return full items (visibility not enforced)
-  return { id: cartId, items };
+  // Filter out any items that are hidden for this contact (treat cart as user view)
+  try {
+    const shaped = items.map(it => ({ id: it.product_id, category_id: it.category_id, sub_category_id: it.sub_category_id }));
+    const allowed = await categoryVisibility.filterProducts(shaped, false, BIZ);
+    const allowedIds = new Set(allowed.map(x => x.id));
+    const visibleItems = items.filter(it => allowedIds.has(it.product_id));
+    return { id: cartId, items: visibleItems };
+  } catch (e) {
+    console.warn('[cart] visibility filter failed', e && e.message ? e.message : e);
+    return { id: cartId, items };
+  }
 }
 
 /* ------------------------------ GET ------------------------------ */
@@ -172,6 +182,15 @@ router.post('/add', authRequired, async (req, res) => {
       { v: variationId, p: productId }
     );
     if (!own) return res.status(400).json({ error: 'variation_not_for_product' });
+
+    // Ensure product/variation is visible to this user
+    try {
+      const isHidden = await categoryVisibility.isHidden({ category_id: own?.category_id ?? null, sub_category_id: null }, false, BIZ);
+      if (isHidden) return res.status(404).json({ error: 'product_not_found' });
+    } catch (e) {
+      // If visibility check fails, allow proceed (best-effort)
+      console.warn('[cart] visibility check failed', e && e.message ? e.message : e);
+    }
 
     // Stock at this location
     const [[stock]] = await pool.query(

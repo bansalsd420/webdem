@@ -45,6 +45,13 @@
   margin: 0;
   background: var(--color-surface-2);
 }
+
+/* Placeholder while hero loads */
+.hero-placeholder { display:flex; align-items:center; justify-content:center; background: linear-gradient(180deg, var(--color-surface-2), var(--color-surface)); }
+.hero-placeholder__skeleton{ width:100%; height:100%; display:flex; align-items:center; justify-content:center; }
+.skeleton-rect{ width:100%; height:100%; border-radius: 16px; background: linear-gradient(90deg, rgba(0,0,0,0.04) 0%, rgba(0,0,0,0.06) 20%, rgba(0,0,0,0.03) 40%, rgba(0,0,0,0.04) 100%); position:relative; overflow:hidden; }
+.skeleton-rect::after{ content: ''; position:absolute; left:-40%; top:0; height:100%; width:40%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent); transform: skewX(-20deg); animation: shimmer 1.2s linear infinite; }
+@keyframes shimmer { 0% { left:-40%; } 100% { left:120%; } }
 .hero-track { display: flex; width: 100%; height: 100%; transition: transform 420ms cubic-bezier(.22,.61,.36,1); will-change: transform; }
 .hero-slide { flex: 0 0 100%; height: 100%; display: block; overflow: hidden; }
 .hero-media { width:100%; height:100%; display:block; overflow:hidden; }

@@ -19,6 +19,19 @@
   margin-right: 6px;
 }
 
+.ms-nav .brand img.brand-logo{ height:32px; width:auto; display:inline-block; vertical-align:middle; }
+
+/* Responsive logo sizes */
+@media (max-width: 640px) {
+  .ms-nav .brand img.brand-logo{ height:24px; }
+}
+@media (min-width: 1024px) {
+  .ms-nav .brand img.brand-logo{ height:36px; }
+}
+@media (min-width: 1600px) {
+  .ms-nav .brand img.brand-logo{ height:44px; }
+}
+
 /* Pills (kept, but slim) */
 .ms-nav .pill{
   display:inline-flex; align-items:center; gap:.45rem;

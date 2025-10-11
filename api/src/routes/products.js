@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authOptional } from '../middleware/auth.js';
 import { erpGetAny, listFrom, totalFrom, qtyAtLocation, n, s, biz, resolveNumericContactId } from '../lib/erp.js';
+import categoryVisibility from '../lib/categoryVisibility.js';
 import cache from '../lib/cache.js';
 
 const router = Router();
@@ -221,8 +222,64 @@ router.get('/', authOptional, async (req, res) => {
       }
     }
 
-    // --- shape items ---
-    let items = baseList.map(p => {
+    // --- shape + visibility-aware pagination ---
+    // We must avoid applying visibility filtering after the ERP has paginated
+    // because that leaves pages short. If filtering shrinks the page, fetch
+    // additional ERP pages until we can fill the requested page or we hit EOF.
+    const isGuest = !loggedIn;
+    let collectedRaw = [];
+    let scannedRaw = 0;
+    let scannedVisible = 0;
+    let currentPage = page;
+    let currentList = baseList;
+    let pagesScanned = 0;
+    const MAX_SCAN_PAGES = 8; // safety cap to avoid excessive scanning
+
+    while (collectedRaw.length < perPage && currentList && currentList.length && pagesScanned < MAX_SCAN_PAGES) {
+      pagesScanned++;
+      // count raw rows
+      scannedRaw += currentList.length;
+
+      // determine which of these raw rows are allowed
+      const shapedForCheck = currentList.map(p => ({ id: p?.id ?? p?.product_id ?? n(p?.product?.id), category_id: n(p?.category_id) ?? n(p?.category?.id), sub_category_id: n(p?.sub_category_id) ?? n(p?.sub_category?.id) }));
+      let allowedIds = new Set();
+      try {
+        const allowed = await categoryVisibility.filterProducts(shapedForCheck, isGuest, biz());
+        allowedIds = new Set(allowed.map(x => x.id));
+      } catch (e) {
+        console.warn('visibility filter failed during refill', e && e.message ? e.message : e);
+        // if visibility check fails, treat all as allowed to avoid hiding content unexpectedly
+        allowedIds = new Set(shapedForCheck.map(x => x.id).filter(Boolean));
+      }
+
+      const visibleThisPage = currentList.filter(p => allowedIds.has(p?.id ?? p?.product_id ?? n(p?.product?.id)));
+      scannedVisible += visibleThisPage.length;
+      collectedRaw.push(...visibleThisPage);
+
+      if (collectedRaw.length >= perPage) break;
+
+      // fetch next ERP page
+      currentPage++;
+      // if ERP gave us a total and we've passed the last page, stop
+      if (Number.isFinite(total) && currentPage > Math.ceil(total / perPage)) break;
+
+      try {
+        const q = { ...baseQuery, page: currentPage, per_page: perPage };
+        const { data: nextData } = await erpGetAny([' /new_product', '/product', '/productapi', '/products'].map(x=>x.trim()), { query: q });
+        const nextList = listFrom(nextData);
+        if (!nextList || !nextList.length) break;
+        currentList = nextList;
+      } catch (e) {
+        console.warn('refill: ERP next-page fetch failed', e && e.message ? e.message : e);
+        break;
+      }
+    }
+
+    // slice to page size
+    const finalRaw = collectedRaw.slice(0, perPage);
+
+    // shape final items
+    let items = finalRaw.map(p => {
       const id   = p?.id ?? p?.product_id ?? n(p?.product?.id);
       const name = p?.name ?? p?.product_name ?? p?.title ?? p?.product?.name ?? '';
       const sku  = p?.sku ?? p?.product_sku ?? p?.code ?? null;
@@ -253,11 +310,10 @@ router.get('/', authOptional, async (req, res) => {
         if (locResult !== null) inStock = locResult; // true/false if we actually saw that location
       }
       if (inStock == null) {
-        // "All locations" or unknown: Option B any-location check with clamping
         inStock = productInStockAny(p);
       }
 
-      // min price: top-level → nested variations (w/ optional price group), then gate for guests
+      // min price
       let minPrice =
         n(p?.min_price) ??
         n(p?.min_sell_price) ??
@@ -265,13 +321,10 @@ router.get('/', authOptional, async (req, res) => {
         n(p?.default_sell_price) ??
         n(p?.price) ??
         null;
-
       if (minPrice == null) {
         minPrice = minPriceFromVariations(p, priceGroupId);
       }
-      if (!loggedIn) {
-        minPrice = null; // never leak prices to guests
-      }
+      if (!loggedIn) minPrice = null;
 
       const brand_id          = n(p?.brand_id) ?? n(p?.brand?.id) ?? null;
       const brand_name        = s(p?.brand_name) ?? s(p?.brand?.name);
@@ -290,7 +343,17 @@ router.get('/', authOptional, async (req, res) => {
       };
     });
 
-    // Category visibility removed: return items as-is
+    // Estimate total visible items based on scanned pages
+    if (scannedRaw > 0 && Number.isFinite(total)) {
+      const ratio = scannedVisible / scannedRaw;
+      total = Math.max(0, Math.round(total * ratio));
+      res.set('X-ERP-Scan-Pages', String(pagesScanned));
+    } else if (scannedRaw > 0) {
+      total = scannedVisible;
+      res.set('X-ERP-Scan-Pages', String(pagesScanned));
+    } else {
+      // fallback: keep total as-is
+    }
 
     if (inStockFlag) {
       // Provide scan telemetry: how many pages scanned & time
@@ -354,7 +417,14 @@ router.get('/:id', authOptional, async (req, res) => {
     const p = Array.isArray(data?.data) ? data.data[0] : (data?.data || data);
     if (!p) return res.status(404).json({ error: 'not found' });
 
-    // Category visibility removed: do not block PDP by category
+    // Block PDP if product is hidden for this requester
+    try {
+      const isGuest = !loggedIn;
+      const hidden = await categoryVisibility.isHidden({ category_id: p?.category_id ?? p?.category?.id, sub_category_id: p?.sub_category_id ?? p?.sub_category?.id }, isGuest, biz());
+      if (hidden) return res.status(404).json({ error: 'not found' });
+    } catch (e) {
+      // ignore errors and proceed
+    }
 
     // base fields
     const baseId = p?.id ?? p?.product_id ?? n(p?.product?.id);
@@ -600,8 +670,17 @@ router.get('/:id/related', authOptional, async (req, res) => {
     );
   const arr = listFrom(data);
 
-    // No visibility filtering for related products
-    const outArr = arr;
+    // Enforce visibility filtering for related products
+    let outArr = arr;
+    try {
+      const shaped = arr.map(p => ({ id: p?.id ?? p?.product_id ?? n(p?.product?.id), category_id: n(p?.category_id) ?? n(p?.category?.id), sub_category_id: n(p?.sub_category_id) ?? n(p?.sub_category?.id) }));
+      const allowed = await categoryVisibility.filterProducts(shaped, !loggedIn, biz());
+      const allowedIds = new Set(allowed.map(x => x.id));
+      outArr = arr.filter(p => allowedIds.has(p?.id ?? p?.product_id ?? n(p?.product?.id)));
+    } catch (e) {
+      console.warn('related visibility filter failed', e && e.message ? e.message : e);
+      outArr = arr;
+    }
 
   const out = outArr.map(p => {
       const id   = p?.id ?? p?.product_id ?? n(p?.product?.id);
