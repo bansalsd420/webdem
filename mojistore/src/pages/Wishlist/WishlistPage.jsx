@@ -4,6 +4,7 @@ import axios from "../../api/axios.js";
 import ProductCard from "../../components/ProductCard/ProductCard.jsx";
 import { useAuth } from "../../state/auth.jsx";
 import { useWishlist } from "../../state/Wishlist.jsx";
+import { attachLocation, getLocationId } from '../../utils/locations';
 
 const CONCURRENCY = 8; // polite parallelism
 
@@ -13,6 +14,7 @@ export default function WishlistPage() {
 
   const [items, setItems] = useState([]);     // array of Product | null (null = skeleton)
   const [loading, setLoading] = useState(true);
+  const [locId, setLocId] = useState(() => getLocationId());
 
   // Normalize -> array of ids in the order we want to show
   const orderedIds = useMemo(() => {
@@ -20,6 +22,13 @@ export default function WishlistPage() {
     const arr = Array.isArray(wishIds) ? wishIds : Array.from(wishIds || []);
     return arr.filter((n) => Number.isFinite(n));
   }, [user, wishIds]);
+
+  // Listen for global location changes and update local state to trigger refetch
+  useEffect(() => {
+    const onLoc = (e) => setLocId(e.detail?.id ?? null);
+    window.addEventListener('location:changed', onLoc);
+    return () => window.removeEventListener('location:changed', onLoc);
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -73,63 +82,49 @@ export default function WishlistPage() {
           return;
         }
 
-        // 2) Progressively hydrate missing price/stock with limited concurrency
-        const targets = base
-          .map((it, i) => ({ idx: i, id: it.id }))
-          .filter((t) => t.id && (base[t.idx].minPrice == null || base[t.idx].inStock == null));
-
-        const jobs = targets.map(({ id }) => async () => {
-          const ctrl = new AbortController();
-          aborters.add(ctrl);
-          const { data } = await axios.get(`/products/${id}`, { withCredentials: true, signal: ctrl.signal });
-          aborters.delete(ctrl);
-          return normalizeCard(Array.isArray(data) ? data[0] : data);
-        });
-
-        await runWithConcurrency(jobs, (_jobIndex, card) => {
-          if (!card) return; // skip failed
-          setItems((prev) => {
-            const next = prev.slice();
-            // Find matching index by id (preserve order from server)
-            const pos = next.findIndex((x) => x && x.id === card.id);
-            if (pos !== -1) next[pos] = { ...next[pos], ...card };
-            return next;
-          });
-        });
+        // 2) Hydrate missing price/stock in a single batch request (preserves order)
+        const needIds = base
+          .map((it) => it.id)
+          .filter(Boolean);
+        if (needIds.length) {
+            const params = attachLocation({ ids: needIds.join(',') }, '/products', { explicit: true });
+          try {
+            const { data } = await axios.get(`/products`, { params, withCredentials: true });
+            const rows = Array.isArray(data?.items) ? data.items : (Array.isArray(data) ? data : []);
+            // merge back into base preserving server order
+            const byId = new Map(rows.map(r => [r.id ?? r.product_id, r]));
+            const merged = base.map(it => ({ ...it, ...(byId.get(it.id) ? normalizeCard(byId.get(it.id)) : {}) }));
+            setItems(merged);
+          } catch (e) {
+            // ignore batch failure; keep base
+          }
+        }
 
         if (alive) setLoading(false);
         return;
       }
 
-      // Guest: progressively fetch each product with polite concurrency
+      // Guest: fetch products in batch (ordered)
       const idsArr = orderedIds || [];
       if (idsArr.length === 0) {
         setItems([]);
         setLoading(false);
         return;
       }
-
-      // Prepare skeletons in order
-      setItems(Array(idsArr.length).fill(null));
-
-      const jobs = idsArr.map((id, i) => async () => {
-        const ctrl = new AbortController();
-        aborters.add(ctrl);
-        const { data } = await axios.get(`/products/${id}`, { signal: ctrl.signal });
-        aborters.delete(ctrl);
-        const d = Array.isArray(data) ? data[0] : data;
-        return { idx: i, card: normalizeCard(d) };
-      });
-
-      await runWithConcurrency(jobs, (_jobIndex, res) => {
-        if (!res) return;
-        setItems((prev) => {
-          if (!prev || res.idx >= prev.length) return prev;
-          const next = prev.slice();
-          next[res.idx] = res.card;
-          return next;
-        });
-      });
+    // Batch fetch with location attached
+    const params = attachLocation({ ids: idsArr.join(',') }, '/products', { explicit: true });
+      try {
+        const { data } = await axios.get('/products', { params });
+        const rows = Array.isArray(data?.items) ? data.items : (Array.isArray(data) ? data : []);
+        const cards = rows.map(r => normalizeCard(r));
+        // If backend preserved order (server-side ordered for logged-out?), otherwise align by idsArr
+        const byId = new Map(cards.map(c => [c.id, c]));
+        const ordered = idsArr.map(id => byId.get(id) || null);
+        setItems(ordered);
+      } catch (e) {
+        // fallback: clear
+        setItems([]);
+      }
 
       if (alive) setLoading(false);
     })();
@@ -139,7 +134,7 @@ export default function WishlistPage() {
       aborters.forEach((c) => c.abort?.());
       aborters.clear();
     };
-  }, [user, orderedIds]);
+  }, [user, orderedIds, locId]);
 
   const onWishlistChange = async (productId, nowSaved) => {
     if (!nowSaved) {

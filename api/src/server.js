@@ -1,6 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
+import underageBlock from './middleware/underage.js';
 import cors from 'cors';
 
 import auth from './routes/auth.js';
@@ -32,6 +33,8 @@ app.set('trust proxy', 1);
 
 app.use(express.json());
 app.use(cookieParser());
+// Block API access if ms_underage cookie is present (best-effort enforcement)
+app.use(underageBlock);
 
 // CORS driven by env (comma-separated)
 if (process.env.CORS_ORIGIN) {

@@ -1,7 +1,7 @@
 // api/account.js
 import { Router } from 'express';
 import { pool } from '../db.js';
-import { authRequired } from '../middleware/auth.js';
+import { authRequired, authOptional } from '../middleware/auth.js';
 import { streamInvoicePdfHtml } from '../lib/invoicePdf.js';
 // at top with other imports
 
@@ -62,8 +62,13 @@ async function loadContactBits(contactId) {
 }
 /** ---------------- Existing routes (unchanged) ---------------- */
 // GET /account/me
-router.get('/me', authRequired, async (req, res, next) => {
+// Use optional auth so anonymous sessions don't generate 401 noise on the home page.
+router.get('/me', authOptional, async (req, res, next) => {
   try {
+    // If no user, return an empty object (anonymous) with 200 OK
+    if (!req.user) {
+      return res.json({});
+    }
 
     // your JWT should carry uid (app_auth_users.id) & cid (contacts.id)
     const uid = req.user?.uid;
@@ -77,7 +82,7 @@ router.get('/me', authRequired, async (req, res, next) => {
         LIMIT 1`,
       { id: uid, bid: BIZ }
     );
-    if (!u) return res.status(401).json({ error: 'unauthorized' });
+  if (!u) return res.json({});
 
     // enrich with contact fields (customer_group_id  human code)
     const bits = await loadContactBits(cid || u.contact_id);

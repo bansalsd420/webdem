@@ -1,5 +1,5 @@
 // src/utils/getProductImage.js
-export function placeholder() { return "/placeholder.jpg"; }
+export function placeholder() { return "../../public/placeholder.jpg"; }
 
 function extractName(input) {
   if (!input) return "";

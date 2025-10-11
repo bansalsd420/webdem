@@ -4,7 +4,6 @@ import { pool } from '../db.js';
 import { authRequired } from '../middleware/auth.js';
 import { priceGroupIdForContact, priceForVariation } from '../lib/price.js';
 import cache from '../lib/cache.js';
-import catVis from '../lib/categoryVisibility.js';
 
 const router = Router();
 const BIZ = Number(process.env.BUSINESS_ID || 0);
@@ -119,16 +118,8 @@ async function loadCartDTO(cartId, cid, locationId) {
       };
     })
   );
-  // Filter items by category visibility for this contact (if cid provided)
-  try {
-    const hidden = await catVis.hiddenCategorySet(Number(process.env.BUSINESS_ID || 0), cid);
-    const filtered = items.filter(it => !catVis.isHiddenByCategoryIds(hidden, it?.category_id || null, null));
-    return { id: cartId, items: filtered };
-  } catch (e) {
-    // On error, return full items (fail open) but log
-    console.error('[cart] visibility filter failed', e && e.message ? e.message : e);
-    return { id: cartId, items };
-  }
+  // Return full items (visibility not enforced)
+  return { id: cartId, items };
 }
 
 /* ------------------------------ GET ------------------------------ */

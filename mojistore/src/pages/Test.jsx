@@ -8,31 +8,7 @@ import axios from "../api/axios";
 const yesNo = (v) => (v ? "Yes" : "No");
 
 export default function TestPanel() {
-  // ---- CATEGORIES + VISIBILITY (ALL) ----
-  const [catRows, setCatRows] = useState([]); // [{category_id, category_name, hide_for_*}]
-  const [visSaving, setVisSaving] = useState({});
-  const [q, setQ] = useState("");
-
-  const filteredCats = useMemo(() => {
-    const t = q.trim().toLowerCase();
-    if (!t) return catRows;
-    return catRows.filter((r) => r.category_name.toLowerCase().includes(t));
-  }, [catRows, q]);
-
-  const loadAllVis = async () => {
-    const { data } = await axios.get("/test/visibility/all", { withCredentials: true });
-    setCatRows(Array.isArray(data) ? data : []);
-  };
-
-  useEffect(() => { loadAllVis(); }, []);
-
-  // ---- PER-CONTACT VISIBILITY (DEV) ----
-  const [contactId, setContactId] = useState('');
-  const [contactHidden, setContactHidden] = useState([]);
-  const [pcSelectedCat, setPcSelectedCat] = useState(null);
-  const [pcSearch, setPcSearch] = useState('');
-  const [pcDescendants, setPcDescendants] = useState([]);
-  const [pcRecursive, setPcRecursive] = useState(false);
+  // ---- BANNERS & Admin controls ----
   // admin cache UI
   const [adminSecret, setAdminSecret] = useState('');
   const [cacheKey, setCacheKey] = useState('');
@@ -43,33 +19,7 @@ export default function TestPanel() {
   const [adminLoadingFlushPrefix, setAdminLoadingFlushPrefix] = useState(false);
   const [adminLoadingStats, setAdminLoadingStats] = useState(false);
   const [showPrefixConfirm, setShowPrefixConfirm] = useState(false);
-  const loadContactHidden = async (cid) => {
-    if (!cid) return setContactHidden([]);
-    try {
-      const { data } = await axios.get(`/test/visibility/effective`, { params: { business_id: process.env.REACT_APP_BUSINESS_ID || undefined, contact_id: cid } });
-      setContactHidden(Array.isArray(data?.hidden) ? data.hidden : []);
-    } catch (e) { setContactHidden([]); }
-  };
-
-  const applyPerContactHide = async ({ category_id, contact_ids, recursive }) => {
-    await axios.post('/test/visibility/for-contact', { category_id, contact_ids, recursive, business_id: Number(process.env.REACT_APP_BUSINESS_ID || 0) }, { withCredentials: true });
-  };
-
-  const removePerContactHide = async ({ category_id, contact_ids, recursive }) => {
-    await axios.delete('/test/visibility/for-contact', { data: { category_id, contact_ids, recursive, business_id: Number(process.env.REACT_APP_BUSINESS_ID || 0) }, withCredentials: true });
-  };
-
-  const loadDescendants = async (categoryId) => {
-    if (!categoryId) return setPcDescendants([]);
-    try {
-      const { data } = await axios.get('/test/categories/descendants', { params: { category_id: categoryId, business_id: Number(process.env.REACT_APP_BUSINESS_ID || 0) } });
-      setPcDescendants(Array.isArray(data?.categories) ? data.categories : []);
-    } catch (e) { setPcDescendants([]); }
-  };
-
-  const flushVisibilityCache = async (businessId, contactId) => {
-    await axios.post('/test/visibility/flush', { business_id: businessId, contact_id: contactId }, { withCredentials: true });
-  };
+  // (Visibility features removed from the project.)
 
   const pushToast = (msg, type = 'info', timeout = 4000) => {
     const id = Date.now() + Math.random();
@@ -77,18 +27,7 @@ export default function TestPanel() {
     setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), timeout);
   };
 
-  const saveOneVis = async (row) => {
-    setVisSaving((p) => ({ ...p, [row.category_id]: true }));
-    try {
-      await axios.post("/test/visibility", {
-        category_id: row.category_id,
-        hide_for_guests: row.hide_for_guests ? 1 : 0,
-        hide_for_all_users: row.hide_for_all_users ? 1 : 0,
-      }, { withCredentials: true });
-    } finally {
-      setVisSaving((p) => ({ ...p, [row.category_id]: false }));
-    }
-  };
+  // visibility save removed
 
   // ---- BANNERS ----
   const [slot, setSlot] = useState("hero");
@@ -182,125 +121,7 @@ export default function TestPanel() {
         .muted{color:#6b7280}
       `}</style>
 
-      {/* Categories + Visibility (ALL) */}
-      <section className="panel">
-        <div className="flex" style={{justifyContent:"space-between", alignItems:"center"}}>
-          <h2 className="text-lg font-semibold">Category visibility (all categories)</h2>
-          <input
-            className="border rounded px-3 py-1"
-            placeholder="Search category…"
-            value={q}
-            onChange={(e)=>setQ(e.target.value)}
-          />
-        </div>
-
-        <table className="tbl mt-3">
-          <thead>
-            <tr>
-              <th style={{width: 60}}>ID</th>
-              <th>Category</th>
-              <th style={{width: 140}}>Hide guests</th>
-              <th style={{width: 180}}>Hide all users</th>
-              <th style={{width: 140}}>Save</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredCats.map((r) => (
-              <tr key={r.category_id}>
-                <td>{r.category_id}</td>
-                <td>{r.category_name}</td>
-                <td>
-                  <input
-                    type="checkbox"
-                    checked={!!r.hide_for_guests}
-                    onChange={(e) =>
-                      setCatRows((prev) =>
-                        prev.map((x) =>
-                          x.category_id === r.category_id ? { ...x, hide_for_guests: e.target.checked ? 1 : 0 } : x
-                        )
-                      )
-                    }
-                  />
-                </td>
-                <td>
-                  <input
-                    type="checkbox"
-                    checked={!!r.hide_for_all_users}
-                    onChange={(e) =>
-                      setCatRows((prev) =>
-                        prev.map((x) =>
-                          x.category_id === r.category_id ? { ...x, hide_for_all_users: e.target.checked ? 1 : 0 } : x
-                        )
-                      )
-                    }
-                  />
-                </td>
-                <td>
-                  <button
-                    className="btn sm"
-                    disabled={!!visSaving[r.category_id]}
-                    onClick={() => saveOneVis(r)}
-                  >
-                    {visSaving[r.category_id] ? "Saving…" : "Save"}
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {!filteredCats.length && (
-              <tr><td className="muted" colSpan={5}>No categories.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </section>
-
-      {/* Per-contact visibility controls */}
-      <section className="panel">
-        <div className="flex" style={{justifyContent:'space-between', alignItems:'center'}}>
-          <h2 className="text-lg font-semibold">Per-contact category hides (dev)</h2>
-          <div className="flex">
-            <input className="border rounded px-3 py-1 mr-2" placeholder="Contact ID" value={contactId} onChange={(e)=>setContactId(e.target.value)} />
-            <button className="btn light" onClick={()=>loadContactHidden(contactId)}>Load hidden</button>
-            <button className="btn light" style={{ marginLeft: 8 }} onClick={() => flushVisibilityCache(Number(process.env.REACT_APP_BUSINESS_ID || 0), contactId)}>Flush visibility cache</button>
-          </div>
-        </div>
-
-        <div className="mt-3">
-          <div className="muted">Hidden categories for contact: {contactHidden.length ? contactHidden.join(', ') : <i>none</i>}</div>
-
-          <div className="mt-3 grid gap-2">
-            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-              <input placeholder="Search categories..." value={pcSearch} onChange={(e)=>setPcSearch(e.target.value)} style={{ flex: 1 }} className="border rounded px-3 py-2" />
-              <div style={{ minWidth: 320, maxHeight: 220, overflow: 'auto', border: '1px solid #ddd', background: '#fff' }}>
-                {catRows.filter(c => { if (!pcSearch) return true; return (c.category_name || '').toLowerCase().includes(pcSearch.toLowerCase()); }).map(c => {
-                  const isHiddenForContact = contactHidden && contactHidden.includes(Number(c.category_id));
-                  return (
-                    <div key={c.category_id} onClick={() => { setPcSelectedCat({ id: c.category_id, name: c.category_name }); setPcSearch(c.category_name); loadDescendants(c.category_id); }} style={{ padding: 8, cursor: 'pointer', background: pcSelectedCat?.id === c.category_id ? '#eef' : isHiddenForContact ? '#fff7ed' : 'transparent', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                      <div>{c.category_name} (id {c.category_id})</div>
-                      {isHiddenForContact && <div className="pill">hidden</div>}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div>
-              <div style={{ marginTop: 8 }}><strong>Selected:</strong> {pcSelectedCat ? `${pcSelectedCat.name} (id ${pcSelectedCat.id})` : 'none'}</div>
-              <div style={{ marginTop: 8 }}><label className="inline-flex items-center gap-2"><input type="checkbox" checked={pcRecursive} onChange={(e)=>setPcRecursive(e.target.checked)} /> Include descendants</label></div>
-              <div style={{ marginTop: 8 }} className="flex gap-2">
-                <button className="btn" disabled={!pcSelectedCat || !contactId} onClick={async () => { await applyPerContactHide({ category_id: pcSelectedCat.id, contact_ids: [Number(contactId)], recursive: pcRecursive }); await loadContactHidden(contactId); }}>Apply hide for contact</button>
-                <button className="btn light" style={{ marginLeft: 8 }} disabled={!pcSelectedCat || !contactId} onClick={async () => { await removePerContactHide({ category_id: pcSelectedCat.id, contact_ids: [Number(contactId)], recursive: pcRecursive }); await loadContactHidden(contactId); }}>Remove hide for contact</button>
-              </div>
-            </div>
-
-            <div>
-              <div style={{ marginTop: 8 }}><strong>Descendants preview ({pcDescendants.length})</strong></div>
-              <div style={{ maxHeight: 160, overflow: 'auto', border: '1px solid #eee', padding: 8, marginTop: 8 }}>
-                {pcDescendants.length === 0 ? <div style={{ color: '#777' }}>No descendants or none loaded.</div> : pcDescendants.map(d => <div key={d.id}>{d.name} (id {d.id})</div>)}
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
+      {/* Category visibility features removed from this UI */}
 
       {/* Admin cache controls (flush, prefix flush, stats) */}
       <section className="panel">

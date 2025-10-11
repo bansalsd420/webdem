@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
 import { erpGetAny, listFrom } from '../lib/erp.js';
-import catVis from '../lib/categoryVisibility.js';
 
 const router = Router();
 const BIZ = Number(process.env.BUSINESS_ID);
@@ -59,22 +58,11 @@ router.get('/suggest', async (req, res) => {
     { like }
   );
 
-  try {
-    const hidden = await catVis.hiddenCategorySet(BIZ, null);
-    const prodFiltered = products.filter(p => !catVis.isHiddenByCategoryIds(hidden, p.category_id, p.sub_category_id));
-    res.json([
-      ...prodFiltered.map(p => ({ type: 'product', id: p.id, label: `${p.name} \u00b7 ${p.sku}`, thumbUrl: p.image || null })),
-      ...cats.map(c => ({ type: 'category', id: c.id, label: c.name })),
-      ...brands.map(b => ({ type: 'brand', id: b.id, label: b.name }))
-    ]);
-  } catch (e) {
-    console.error('[search] visibility filter failed', e && e.message ? e.message : e);
-    res.json([
-      ...products.map(p => ({ type: 'product', id: p.id, label: `${p.name} \u00b7 ${p.sku}`, thumbUrl: p.image || null })),
-      ...cats.map(c => ({ type: 'category', id: c.id, label: c.name })),
-      ...brands.map(b => ({ type: 'brand', id: b.id, label: b.name }))
-    ]);
-  }
+  res.json([
+    ...products.map(p => ({ type: 'product', id: p.id, label: `${p.name} \u00b7 ${p.sku}`, thumbUrl: p.image || null })),
+    ...cats.map(c => ({ type: 'category', id: c.id, label: c.name })),
+    ...brands.map(b => ({ type: 'brand', id: b.id, label: b.name }))
+  ]);
 });
 
 export default router;

@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
-import catVis from '../lib/categoryVisibility.js';
 
 const router = Router();
 const BIZ = Number(process.env.BUSINESS_ID);
@@ -21,6 +20,8 @@ router.get('/', async (req, res) => {
     ];
     const params = { bid: BIZ };
 
+  // Legacy category-visibility removed -- no hidden params required.
+
     if (typeof q === 'string' && q.trim() !== '') {
       whereParts.push('(p.name LIKE :q OR p.sku LIKE :q)');
       params.q = `%${q.trim()}%`;
@@ -40,19 +41,7 @@ router.get('/', async (req, res) => {
       params.sub = sub;
     }
 
-    // Compute hidden categories for this request (guest vs logged-in not known here; treat as guest)
-    let hiddenArr = [];
-    try {
-      const hiddenSet = await catVis.hiddenCategorySet(BIZ, null);
-      if (hiddenSet && hiddenSet.size) hiddenArr = Array.from(hiddenSet);
-    } catch (e) {
-      console.error('[filters] failed to compute hidden categories', e && e.message ? e.message : e);
-    }
-
-    // If we have hidden categories, add exclusion clauses to the whereParts
-    if (hiddenArr.length) {
-      whereParts.push('(p.category_id NOT IN (:hidden) AND (p.sub_category_id IS NULL OR p.sub_category_id NOT IN (:hidden)))');
-    }
+    // No category visibility enforcement; build whereParts as-is
 
     const where = whereParts.join(' AND ');
 
@@ -65,7 +54,7 @@ router.get('/', async (req, res) => {
        GROUP BY b.id, b.name
        ORDER BY b.name
        `,
-      { ...params, hidden: hiddenArr, rowsAsArray: false, timeout: 8000 }   // <- query timeout
+      { ...params, rowsAsArray: false, timeout: 8000 }   // <- query timeout
     );
 
     const [categories] = await pool.query(
@@ -77,7 +66,7 @@ router.get('/', async (req, res) => {
        GROUP BY c.id, c.name
        ORDER BY c.name
     `,
-      { ...params, hidden: hiddenArr, rowsAsArray: false, timeout: 8000 }
+      { ...params, rowsAsArray: false, timeout: 8000 }
     );
 
     const [subcats] = await pool.query(
@@ -89,7 +78,7 @@ router.get('/', async (req, res) => {
        GROUP BY sc.id, sc.name
        ORDER BY sc.name
      `,
-      { ...params, hidden: hiddenArr, rowsAsArray: false, timeout: 8000 }
+      { ...params, rowsAsArray: false, timeout: 8000 }
     );
 
     res.json({ brands, categories, subcategories: subcats });

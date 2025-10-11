@@ -2,7 +2,6 @@ import { Router } from 'express';
 import { authOptional } from '../middleware/auth.js';
 import { erpGetAny, listFrom, totalFrom, qtyAtLocation, n, s, biz, resolveNumericContactId } from '../lib/erp.js';
 import cache from '../lib/cache.js';
-import catVis from '../lib/categoryVisibility.js';
 
 const router = Router();
 
@@ -100,6 +99,15 @@ function productInStockAny(product) {
   return false;
 }
 
+// Resolve a price group id from query or authenticated user; returns undefined
+// when no valid numeric id is present.
+function resolvePriceGroupId(req) {
+  const qval = n(req?.query?.price_group_id ?? req?.query?.priceGroupId);
+  if (Number.isFinite(qval)) return qval;
+  const uval = n(req?.user?.price_group_id);
+  return Number.isFinite(uval) ? uval : undefined;
+}
+
 /**
  * GET /api/products
  * Query: page, perPage|limit, q, category, subcategory, brand, locationId
@@ -119,8 +127,12 @@ router.get('/', authOptional, async (req, res) => {
     const contactId = await resolveNumericContactId(cidRaw); // handles numeric or "CO0005" codes
     const loggedIn  = Number.isFinite(contactId);
 
-    // Price-group id may be wired later (env or /account/me). For now, undefined.
-    const priceGroupId = undefined;
+    // Price-group id: allow caller to request a selling price group or inherit from authenticated user
+    let priceGroupId = n(req.query.price_group_id ?? req.query.priceGroupId);
+    if (!Number.isFinite(priceGroupId) && req?.user?.price_group_id) {
+      priceGroupId = n(req.user.price_group_id);
+    }
+    if (!Number.isFinite(priceGroupId)) priceGroupId = undefined;
 
     // --- fetch ---
     const baseQuery = {
@@ -144,13 +156,26 @@ router.get('/', authOptional, async (req, res) => {
   const PRODUCTS_CACHE_TTL = Number(process.env.PRODUCTS_CACHE_TTL_MS || 60 * 1000);
   const baseCacheKey = `products:v1:${cache.hashParams({ q, category, subcat, brand, page, perPage, locationId })}`;
 
-  // Fetch logic: if inStockFlag is requested we need an accurate total of
+  // Support batch fetch by ids: useful for wishlist to request specific products
+  const idsParam = req.query.ids ? String(req.query.ids) : null;
+  const ids = idsParam ? idsParam.split(',').map(x => n(x)).filter(Boolean) : null;
+
+  // Fetch logic: if ids supplied we fetch those exact products (no caching);
+  // if inStockFlag is requested we need an accurate total of
   // matching items across all pages. We'll fetch multiple pages (capped)
   // and then filter & paginate locally. Otherwise fetch a single page (cacheable).
   let baseList = [];
   let total = 0;
-
-  if (inStockFlag) {
+  if (Array.isArray(ids) && ids.length) {
+      // Best-effort: request by id CSV from ERP connector
+      const q = { ...baseQuery, page: 1, per_page: Math.max(perPage, ids.length), limit: ids.length, id: ids.join(',') };
+      const { data: baseData } = await erpGetAny(
+        ['/new_product', '/product', '/productapi', '/products'],
+        { query: q }
+      );
+      baseList = listFrom(baseData);
+      total = baseList.length;
+  } else if (inStockFlag) {
       const MAX_ITEMS = 2000; // safety cap
       const CHUNK = Math.max(perPage, 200);
       let pageCursor = 1;
@@ -265,15 +290,7 @@ router.get('/', authOptional, async (req, res) => {
       };
     });
 
-    // Enforce visibility for this request (best-effort). Hide items belonging to hidden categories/subcategories.
-    try {
-      const hidden = await catVis.hiddenCategorySet(biz(), contactId);
-      items = items.filter(it => !catVis.isHiddenByCategoryIds(hidden, it.category_id, it.sub_category_id));
-      // Adjust total to reflect filtered count
-      total = items.length;
-    } catch (e) {
-      console.error('[products] visibility filter failed', e && e.message ? e.message : e);
-    }
+    // Category visibility removed: return items as-is
 
     if (inStockFlag) {
       // Provide scan telemetry: how many pages scanned & time
@@ -318,6 +335,8 @@ router.get('/:id', authOptional, async (req, res) => {
   const cidRaw     = req?.user?.cid;
   const contactId  = await resolveNumericContactId(cidRaw);
   const loggedIn   = Number.isFinite(contactId);
+  // Ensure priceGroupId is resolved for PDP pricing computations
+  const priceGroupId = resolvePriceGroupId(req);
 
   try {
     const { data } = await erpGetAny(
@@ -335,17 +354,7 @@ router.get('/:id', authOptional, async (req, res) => {
     const p = Array.isArray(data?.data) ? data.data[0] : (data?.data || data);
     if (!p) return res.status(404).json({ error: 'not found' });
 
-    // Enforce category visibility for PDP: return 404 when category/subcategory hidden for this user
-    try {
-      const category_id = n(p?.category_id) ?? n(p?.category?.id);
-      const sub_category_id = n(p?.sub_category_id) ?? n(p?.sub_category?.id);
-      const hidden = await catVis.hiddenCategorySet(biz(), contactId);
-      if (catVis.isHiddenByCategoryIds(hidden, category_id, sub_category_id)) {
-        return res.status(404).json({ error: 'not found' });
-      }
-    } catch (e) {
-      console.error('[products] PDP visibility check failed', e && e.message ? e.message : e);
-    }
+    // Category visibility removed: do not block PDP by category
 
     // base fields
     const baseId = p?.id ?? p?.product_id ?? n(p?.product?.id);
@@ -369,7 +378,7 @@ router.get('/:id', authOptional, async (req, res) => {
       null;
 
     if (minPrice == null) {
-      minPrice = minPriceFromVariations(p, /*priceGroupId*/ undefined);
+      minPrice = minPriceFromVariations(p, priceGroupId);
     }
     if (!loggedIn) minPrice = null;
 
@@ -561,6 +570,9 @@ router.get('/:id/related', authOptional, async (req, res) => {
     const contactId = await resolveNumericContactId(req?.user?.cid);
     const loggedIn  = Number.isFinite(contactId);
 
+    // Resolve price group id for related product pricing
+    const priceGroupId = resolvePriceGroupId(req);
+
     // Fetch the base product to infer category/brand for related query
     const { data: pd } = await erpGetAny(
       [`/product/${pid}`, `/productapi/${pid}`, `/products/${pid}`],
@@ -588,16 +600,10 @@ router.get('/:id/related', authOptional, async (req, res) => {
     );
   const arr = listFrom(data);
 
-    // Apply visibility filter to related list
-    let outArr = arr;
-    try {
-      const hidden = await catVis.hiddenCategorySet(biz(), contactId);
-      outArr = arr.filter(a => !catVis.isHiddenByCategoryIds(hidden, n(a?.category_id) ?? n(a?.category?.id), n(a?.sub_category_id) ?? n(a?.sub_category?.id)));
-    } catch (e) {
-      console.error('[products] related visibility filter failed', e && e.message ? e.message : e);
-    }
+    // No visibility filtering for related products
+    const outArr = arr;
 
-    const out = outArr.map(p => {
+  const out = outArr.map(p => {
       const id   = p?.id ?? p?.product_id ?? n(p?.product?.id);
       const name = p?.name ?? p?.product_name ?? p?.title ?? '';
       const sku  = p?.sku ?? p?.product_sku ?? p?.code ?? null;
@@ -631,9 +637,9 @@ router.get('/:id/related', authOptional, async (req, res) => {
         inStock = productInStockAny(p);
       }
 
-      // Price: compute from variations, then gate for guests
-      let minPrice = minPriceFromVariations(p, /*priceGroupId*/ undefined);
-      if (!loggedIn) minPrice = null;
+    // Price: compute from variations (with price group), then gate for guests
+    let minPrice = minPriceFromVariations(p, priceGroupId);
+    if (!loggedIn) minPrice = null;
 
       return {
         id, name, sku, image,

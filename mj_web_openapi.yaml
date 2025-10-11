@@ -1,118 +1,227 @@
 openapi: 3.0.3
 info:
-  title: MJ_WEB API (implemented subset)
-  version: 1.0.0
-servers:
-  - url: /api
-paths:
-  /home:
-    get:
-      summary: Homepage payload (banners, rails, featured brands, broadcast)
-      description: Returns the combined data the storefront uses for the Home page. If an active broadcast exists it will be included as `broadcast` in the payload.
-      responses:
-        '200':
-          openapi: 3.0.3
-          info:
-            title: MJ_WEB API (implemented subset)
-            version: 1.0.0
-          servers:
-            - url: /api
-          paths:
-            /home:
-              get:
-                summary: Homepage payload (banners, rails, featured brands, broadcast)
-                description: Returns the combined data the storefront uses for the Home page. If an active broadcast exists it will be included as `broadcast` in the payload.
-                responses:
-                  '200':
-                    description: OK
-            openapi: 3.0.3
-            info:
-              title: MJ_WEB API (implemented subset)
-              version: 1.0.0
-            servers:
-              - url: /api
-            paths:
-              /home:
-                get:
-                  summary: Homepage payload (banners, rails, featured brands, broadcast)
-                  description: Returns the combined data the storefront uses for the Home page. If an active broadcast exists it will be included as `broadcast` in the payload.
-                  responses:
-                    '200':
-                      description: OK
-              /test/broadcasts:
-                get:
-                  summary: List broadcasts (dev/test only)
-                  responses:
-                    '200':
-                      description: OK
-                post:
-                  summary: Create a broadcast (dev/test only)
-                  requestBody:
-                    required: true
-                    content:
-                      application/json:
-                        schema:
-                          type: object
-                          properties:
-                            business_id:
-                              type: integer
-                            title:
-                              type: string
-                            body:
-                              type: string
-                            active:
-                              type: boolean
-                          required: [business_id, title, body]
-                  responses:
-                    '201':
-                      description: Created
-              /test/broadcasts/{id}:
-                delete:
-                  summary: Delete a broadcast by id (dev/test only)
-                  parameters:
-                    - in: path
-                      name: id
-                      required: true
-                      schema:
-                        type: integer
-                  responses:
-                    '200':
-                      description: OK
-              /auth/login:
-                post:
-                  summary: Login (returns auth cookie)
-                  requestBody:
-                    required: true
-                    content:
-                      application/json:
-                        schema:
-                          type: object
-                          properties:
-                            email:
-                              type: string
-                            password:
-                              type: string
-                          required: [email, password]
-                  responses:
-                    '200':
-                      description: OK
-              /auth/logout:
-                post:
-                  summary: Logout (clears cookie)
-                  responses:
-                    '200':
-                      description: OK
-              /account/me:
-                get:
-                  summary: Current session profile (uses cookie auth)
-                  security: [ { cookieAuth: [] } ]
-                  responses:
-                    '200':
-                      description: OK
-            components:
-              securitySchemes:
-                cookieAuth:
-                  type: apiKey
-                  in: cookie
-                  name: token
-                responses:
+  title: MJ_WEB API
+  ```yaml
+  openapi: 3.0.3
+  info:
+    title: MJ_WEB API (implemented subset)
+    version: 1.0.0
+  servers:
+    - url: /api
+  paths:
+    /auth/login:
+      post:
+        summary: Login (returns auth cookie)
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  email: { type: string }
+                  password: { type: string }
+                required: [email, password]
+        responses:
+          '200': { description: OK }
+
+    /auth/logout:
+      post:
+        summary: Logout (clears cookie)
+        responses: { '200': { description: OK } }
+
+    /auth/request-reset:
+      post:
+        summary: Request password reset (safe 200)
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { email: { type: string } }
+        responses: { '200': { description: OK } }
+
+    /auth/reset:
+      post:
+        summary: Reset password with token
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  password: { type: string }
+                required: [token, password]
+        responses: { '200': { description: OK } }
+
+    /account/me:
+      get:
+        summary: Current session profile (uses cookie auth)
+        security: [ { cookieAuth: [] } ]
+        responses: { '200': { description: OK } }
+
+    /products:
+      get:
+        summary: List products (supports q, category, brand, page, perPage, locationId, inStock)
+        parameters:
+          - in: query
+            name: q
+            schema: { type: string }
+          - in: query
+            name: page
+            schema: { type: integer }
+          - in: query
+            name: perPage
+            schema: { type: integer }
+          - in: query
+            name: locationId
+            schema: { type: integer }
+          - in: query
+            name: inStock
+            schema: { type: string }
+        responses:
+          '200':
+            description: OK
+            headers:
+              X-Total-Count: { schema: { type: string } }
+              X-ERP-Scan-Pages: { schema: { type: string } }
+              X-ERP-Scan-MS: { schema: { type: string } }
+
+    /products/{id}:
+      get:
+        summary: Product detail
+        parameters:
+          - in: path
+            name: id
+            schema: { type: integer }
+        responses: { '200': { description: OK } }
+
+    /filters:
+      get:
+        summary: Facet counts for filters (brands/categories/subcategories)
+        parameters:
+          - in: query
+            name: q
+            schema: { type: string }
+          - in: query
+            name: categoryId
+            schema: { type: integer }
+        responses: { '200': { description: OK } }
+
+    /search/suggest:
+      get:
+        summary: Search suggestions (autocomplete)
+        parameters:
+          - in: query
+            name: q
+            required: true
+            schema: { type: string }
+        responses: { '200': { description: OK } }
+
+    /cart:
+      get:
+        summary: Get server cart (authenticated users)
+        security: [ { cookieAuth: [] } ]
+        responses: { '200': { description: OK } }
+
+    /cart/add:
+      post:
+        summary: Add item to server cart
+        security: [ { cookieAuth: [] } ]
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  productId: { type: integer }
+                  variationId: { type: integer }
+                  qty: { type: integer }
+                required: [productId, variationId, qty]
+        responses: { '200': { description: OK } }
+
+    /cart/update:
+      patch:
+        summary: Update line qty
+        security: [ { cookieAuth: [] } ]
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: integer }
+                  qty: { type: integer }
+                required: [id, qty]
+        responses: { '200': { description: OK } }
+
+    /cart/remove/{id}:
+      delete:
+        summary: Remove line
+        security: [ { cookieAuth: [] } ]
+        parameters:
+          - in: path
+            name: id
+            required: true
+            schema: { type: integer }
+        responses: { '200': { description: OK } }
+
+    /checkout/bootstrap:
+      get:
+        summary: Bootstrap checkout (locations + defaults)
+        security: [ { cookieAuth: [] } ]
+        responses: { '200': { description: OK } }
+
+    /checkout/create:
+      post:
+        summary: Create sell (server computes pricing and posts to connector)
+        security: [ { cookieAuth: [] } ]
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        responses: { '200': { description: OK } }
+
+    /locations:
+      get:
+        summary: List business locations
+        responses: { '200': { description: OK } }
+
+    /api/admin/cache/flush:
+      post:
+        summary: Admin: flush a cache key (requires ADMIN_CACHE_SECRET via header or body secret)
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { key: { type: string } }
+                required: [key]
+        responses: { '200': { description: OK } }
+
+    /api/admin/cache/stats:
+      get:
+        summary: Admin: get in-process cache stats (requires ADMIN_CACHE_SECRET)
+        responses: { '200': { description: OK } }
+
+  components:
+    securitySchemes:
+      cookieAuth:
+        type: apiKey
+        in: cookie
+        name: token
+      bearerAuth:
+        type: http
+        scheme: bearer
+        bearerFormat: JWT
+  ```
+              properties:

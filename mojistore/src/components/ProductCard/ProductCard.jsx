@@ -7,6 +7,7 @@ import { useAuth } from "../../state/auth.jsx";
 import QuickView from "../QuickView/QuickView.jsx";
 import "./product-card.css";
 import { getLocationId } from "../../utils/locations";
+import { placeholder } from "../../utils/getProductImage";
 /**
  * ProductCard
  *
@@ -125,14 +126,16 @@ export default function ProductCard({
     // If authed, let <Link to={toPdp}> proceed normally
   };
 
-  const priceNode =
-    p.minPrice == null ? (
-      <Link to={toLogin} className="card-price-link">
-        Login to see price
-      </Link>
-    ) : (
-      <span className="card-price">{`$ ${Number(p.minPrice).toFixed(2)}`}</span>
-    );
+  // Determine whether price/stock are still being loaded/hydrated.
+  const isLoadingPriceOrStock = p.minPrice == null || p.inStock == null;
+
+  const priceNode = p.minPrice == null ? (
+    <Link to={toLogin} className="card-price-link">
+      Login to see price
+    </Link>
+  ) : (
+    <span className="card-price">{`$ ${Number(p.minPrice).toFixed(2)}`}</span>
+  );
 
   return (
     <>
@@ -159,6 +162,9 @@ export default function ProductCard({
               fit="cover"
               safeCover={false}
               priority={priority}
+              // Use canonical placeholder from getProductImage so it follows
+              // whatever path the project uses (you updated this file already).
+              fallback={placeholder()}
             />
           </Link>
 
@@ -237,10 +243,17 @@ export default function ProductCard({
           {/* FOOT: price/stock (toggleable) */}
           {showPriceStock && (
             <div className="card-foot">
-              <span className={`pill ${p.inStock ? "pill--ok" : "pill--bad"}`}>
-                {p.inStock ? "In stock" : "Out of stock"}
-              </span>
-              {priceNode}
+              {isLoadingPriceOrStock ? (
+                // Combined updating indicator while either price or stock is being hydrated
+                <span className="pill pill--info">Updating…</span>
+              ) : (
+                <>
+                  <span className={`pill ${p.inStock ? "pill--ok" : "pill--bad"}`}>
+                    {p.inStock ? "In stock" : "Out of stock"}
+                  </span>
+                  {priceNode}
+                </>
+              )}
             </div>
           )}
         </div>

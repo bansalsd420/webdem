@@ -10,14 +10,19 @@ export default function SmartImage({
   width,           // px you want server to resize to
   height,          // px (keeps aspect-ratio)
   sizes,           // responsive sizes attr
-  priority = false // true for first hero/banner
+  priority = false, // true for first hero/banner
+  // optional fallback URL when image fails to load. If not provided,
+  // falls back to the library placeholder() value.
+  fallback = undefined,
 }) {
-  const [errored, setErrored] = useState(false);
+  // erroredSrc: when a load error occurs we'll store the replacement src
+  // (either the provided fallback or the built-in placeholder). null means no error yet.
+  const [erroredSrc, setErroredSrc] = useState(null);
   const [loaded, setLoaded] = useState(false);
 
   // Main src @1x
   const src1x = useMemo(() => {
-    if (errored) return placeholder();
+    if (erroredSrc) return erroredSrc;
     return getProductImage(image, {
       q: quality,
       fit,
@@ -25,7 +30,7 @@ export default function SmartImage({
       height,
       format: "auto",
     });
-  }, [image, quality, fit, width, height, errored]);
+  }, [image, quality, fit, width, height, erroredSrc]);
 
   // Hi-DPI src @2x (cap at 2x width to avoid waste)
   const src2x = useMemo(() => {
@@ -62,15 +67,24 @@ export default function SmartImage({
 
   const srcSet = src2x ? `${src1x} 1x, ${src2x} 2x` : undefined;
 
+  // If an error occurred, immediately use the replacement src for display
+  const displaySrc = erroredSrc ? erroredSrc : (loaded ? src1x : blurSrc);
+  const displaySrcSet = erroredSrc ? undefined : (loaded ? srcSet : undefined);
+
   return (
     <img
-      src={loaded ? src1x : blurSrc}
-      srcSet={loaded ? srcSet : undefined}
+      src={displaySrc}
+      srcSet={displaySrcSet}
       alt={alt}
       loading={priority ? "eager" : "lazy"}
       decoding="async"
       sizes={sizes}
-      onError={() => setErrored(true)}
+      onError={() => {
+        // Use provided fallback if present, otherwise use the module placeholder
+        const rep = fallback || placeholder();
+        // set replacement; this will cause displaySrc to switch to rep
+        setErroredSrc(rep);
+      }}
       onLoad={() => setLoaded(true)}
       className={className}
       style={style}

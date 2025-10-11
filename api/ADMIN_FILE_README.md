@@ -26,6 +26,3 @@ Or add to your process manager env.
 Security
 
 This is intended for local/dev operational convenience. Do not expose the commands file to untrusted users. In production you may prefer the guarded HTTP admin endpoints (ADMIN_CACHE_SECRET) instead.
-
-Note about broadcasts
-- The project includes a developer-facing broadcasts table `app_home_broadcasts` (migration: `api/migrations/20251010_create_app_home_broadcasts.sql`). If you enable that table in your DB you can manage broadcasts via the frontend Test UI (`/__test`) or via the dev endpoints `GET|POST|DELETE /api/test/broadcasts`.

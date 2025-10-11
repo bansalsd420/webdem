@@ -77,9 +77,6 @@ Where to look in the codebase (quick pointers)
 - Backend entry: `api/src/server.js` (mounts routes and starts optional file-admin runner)
 - API routes: `api/src/routes/*.js` (products.js, home.js, locations.js, cart.js, checkout.js, admin_cache.js)
 	- New: `app_home_broadcasts` table and `/api/test/broadcasts` dev endpoints to manage home broadcast modal messages. The `/api/home` endpoint now returns `broadcast` (most recent active) in its payload.
-
-Environment / frontend note
-- The frontend reads `VITE_MOJISTORE_NAME` from Vite env to render the company name inside the Age Verification modal. Add this to `mojistore/.env` or `.env.local` (for example: `VITE_MOJISTORE_NAME=My Store`).
 - ERP helper: `api/src/lib/erp.js` (all ERP connector calls are centralized here)
 - Shared cache: `api/src/lib/cache.js` (in-process LRU + optional DB invalidation)
 - File-based admin: `api/src/lib/fileAdmin.js` (watch JSON commands file)
@@ -89,11 +86,7 @@ Running checklist (minimal)
 	 $env:PORT='4000'; $env:ADMIN_COMMANDS_FILE='C:\path\to\admin_cache_commands.json'; node src/server.js
 2) From `mojistore/`: `npm install`; `npm run dev` and open the Vite URL.
 
-If you want me to: I can further tighten these docs (examples, curl/PowerShell snippets, or generate a small Postman collection). The key migration and test endpoints to be aware of are:
-
- - SQL migration: `api/migrations/20251010_create_app_home_broadcasts.sql`
- - Dev/test endpoints: `GET|POST|DELETE /api/test/broadcasts`
- - Home payload: `GET /api/home` (includes `broadcast` when active)
+If you want me to: I can rewrite the long docs in this repo (`system_blueprint.md`, `mj_web_schema_cheatsheet.md`, and `mj_web_openapi.yaml`) to be shorter and accurate to the current codebase. I will do that if you confirm.
 
 Data Flow & Integration: For most read operations (product listings, search suggestions, home page sections, etc.), the backend queries the local MySQL database (which contains synced product, category, and transaction data from UltimatePOS) for performance. For certain real-time or detailed data (individual product details with stock and price, customer contact info, or posting new orders), the backend calls UltimatePOS’s REST API to ensure up-to-date ERP logic is applied. This hybrid approach means some data is served from the local DB while some flows delegate to UltimatePOS. Authentication and session management are handled via JWT cookies issued by our backend (not directly exposing UltimatePOS credentials), and customer actions like checkout trigger ERP operations (e.g. creating a sale in UltimatePOS).
 

@@ -1,0 +1,87 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Access Restricted</title>
+  <style>
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; background:#0b0b0b;}
+    .wrap{min-height:100%;display:flex;align-items:center;justify-content:center;padding:24px}
+    .card{width:100%;max-width:640px;background:#fff;border-radius:8px;box-shadow:0 18px 40px rgba(2,6,23,.6);padding:36px;border:1px solid #e7e7e7;text-align:center}
+    .logo{height:72px;margin:0 auto 12px;background:no-repeat center/contain url('/placeholder.jpg')}
+    h1{margin:6px 0 12px;font-size:20px;color:#111827}
+    p{margin:0 0 18px;color:#374151;line-height:1.6;text-align:justify;max-width:48ch;margin-left:auto;margin-right:auto}
+    .btn-row{display:flex;gap:12px;justify-content:center;margin-top:8px;flex-wrap:wrap}
+    .btn{display:inline-block;padding:12px 18px;border-radius:6px;border:0;font-weight:700;cursor:pointer;min-width:180px}
+    .btn-primary{background:#d43b3b;color:#fff;box-shadow:0 6px 18px rgba(212,59,59,.18)}
+    .btn-ghost{background:#f3f4f6;color:#111827;border:1px solid #e6e7ea}
+    .small{font-size:13px;color:#6b7280;margin-top:12px}
+    @media (max-width:520px){ .card{padding:20px} .logo{height:56px} .btn{min-width:140px} }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card" role="main" aria-labelledby="u-title">
+      <div class="logo" aria-hidden="true"></div>
+      <h1 id="u-title">Access restricted</h1>
+      <p>
+        You indicated you are under the required age, so access to the site was blocked.
+        If you clicked that option by mistake you can restore access by confirming you are over 18.
+      </p>
+
+      <div class="btn-row">
+        <button id="btnConfirm" class="btn btn-primary">No — I'm over 18</button>
+        <button id="btnStay" class="btn btn-ghost">Keep me blocked</button>
+      </div>
+
+      <div class="small">If you intentionally accessed this page, please close the tab or contact support.</div>
+    </div>
+  </div>
+
+  <script>
+    // Clear underage flags and common auth tokens then redirect to home
+    function clearUnderageAndReload() {
+      try {
+        // remove common local keys related to underage / modal seen flags
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+          const k = localStorage.key(i);
+          if (!k) continue;
+          if (k === 'ms_underage' || k.startsWith('ms_seen_') || k.startsWith('ms_') ) {
+            localStorage.removeItem(k);
+          }
+        }
+        // remove auth tokens commonly used (adjust names to your app)
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('token');
+
+        // clear sessionStorage
+        try { sessionStorage.clear(); } catch(e){}
+
+        // delete cookie ms_underage (path=/) and a few variants
+        document.cookie = 'ms_underage=; Path=/; Max-Age=0; SameSite=Lax';
+        document.cookie = 'ms_underage=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
+        // Also attempt domain-less removal (some browsers)
+        document.cookie = 'ms_underage=; Max-Age=0;';
+
+        // small delay for cookie/localStorage to settle then navigate
+        setTimeout(() => {
+          // force a full reload to clear in-memory state
+          window.location.replace('/');
+        }, 150);
+      } catch (err) {
+        // best-effort — still navigate
+        window.location.replace('/');
+      }
+    }
+
+    document.getElementById('btnConfirm').addEventListener('click', clearUnderageAndReload);
+    document.getElementById('btnStay').addEventListener('click', () => {
+      // keep blocked: do nothing (user stays here)
+      alert('You will remain blocked. Close this tab to leave.');
+    });
+
+    // accessibility: handle Enter on focused button
+    document.addEventListener('keydown', function(e){ if(e.key === 'Enter') { const el = document.activeElement; if(el && (el.id==='btnConfirm' || el.id==='btnStay')) el.click(); }});
+  </script>
+</body>
+</html>

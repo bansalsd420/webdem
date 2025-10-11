@@ -153,6 +153,11 @@ export default function Home() {
   }, [broadcastData]);
 
   const companyName = (import.meta.env.VITE_MOJISTORE_NAME || 'mojistore');
+  const companyLogo = (
+    import.meta.env.VITE_MOJISTORE_LOGO_URL ||
+    import.meta.env.VITE_COMPANY_LOGO_URL ||
+    '/placeholder.jpg'
+  );
 
   const onAcceptAge = () => {
   const pathKeyAge = `ms_seen_age:${window.location.pathname}`;
@@ -171,6 +176,17 @@ export default function Home() {
     setShowBroadcast(false);
   };
 
+  const onUnderage = () => {
+    try {
+      // persistent block across tabs
+      localStorage.setItem('ms_underage', '1');
+      // set cookie for server to see (max-age 1 year)
+      document.cookie = 'ms_underage=1; Path=/; Max-Age=' + (60 * 60 * 24 * 365) + '; SameSite=Lax';
+    } catch (e) {}
+    // redirect to static underage page (use explicit filename to bypass SPA routing)
+    window.location.replace('/underage.html');
+  };
+
   // Discovery-only click → Products search (so price/stock show there)
   const goToProductsFor = (p) => {
     const q = p?.name || p?.sku || "";
@@ -183,7 +199,7 @@ export default function Home() {
       <HeroCarousel slides={hero} />
 
         {/* Global modals */}
-        <AgeModal companyName={companyName} visible={showAge} onAccept={onAcceptAge} onUnderage={() => { setShowAge(false); }} />
+  <AgeModal companyName={companyName} companyLogo={companyLogo} visible={showAge} onAccept={onAcceptAge} onUnderage={onUnderage} />
         <BroadcastModal broadcast={broadcastData} visible={showBroadcast && !showAge} onClose={closeBroadcast} />
 
       {/* WALL: render exactly the count from API (no placeholders, no cap) */}

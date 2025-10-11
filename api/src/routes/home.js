@@ -6,7 +6,6 @@ import { pool } from "../db.js";
 import { authOptional } from "../middleware/auth.js";
 import crypto from "crypto";
 import cache from "../lib/cache.js";
-import catVis from "../lib/categoryVisibility.js";
 
 const router = Router();
 
@@ -176,14 +175,7 @@ async function baseTrending(limit = 12) {
     [BUSINESS_ID, BUSINESS_ID, Number(limit)]
   );
   const mapped = rows.map(mapBase);
-  try {
-    const hidden = await catVis.hiddenCategorySet(BUSINESS_ID, null);
-    if (!hidden || hidden.size === 0) return mapped;
-    return mapped.filter(r => !catVis.isHiddenByCategoryIds(hidden, r.category_id, r.sub_category_id));
-  } catch (e) {
-    console.error('[home] trending visibility filter failed', e && e.message ? e.message : e);
-    return mapped;
-  }
+  return mapped;
 }
 
 async function baseFresh(limit = 10) {
@@ -201,14 +193,7 @@ async function baseFresh(limit = 10) {
     [BUSINESS_ID, Number(limit)]
   );
   const mapped = rows.map(mapBase);
-  try {
-    const hidden = await catVis.hiddenCategorySet(BUSINESS_ID, null);
-    if (!hidden || hidden.size === 0) return mapped;
-    return mapped.filter(r => !catVis.isHiddenByCategoryIds(hidden, r.category_id, r.sub_category_id));
-  } catch (e) {
-    console.error('[home] fresh visibility filter failed', e && e.message ? e.message : e);
-    return mapped;
-  }
+  return mapped;
 }
 
 async function baseBest(limit = 16) {
@@ -237,14 +222,7 @@ async function baseBest(limit = 16) {
     [BUSINESS_ID, BUSINESS_ID, Number(limit)]
   );
   const mapped = rows.map(mapBase);
-  try {
-    const hidden = await catVis.hiddenCategorySet(BUSINESS_ID, null);
-    if (!hidden || hidden.size === 0) return mapped;
-    return mapped.filter(r => !catVis.isHiddenByCategoryIds(hidden, r.category_id, r.sub_category_id));
-  } catch (e) {
-    console.error('[home] best visibility filter failed', e && e.message ? e.message : e);
-    return mapped;
-  }
+  return mapped;
 }
 
 // -----------------------------

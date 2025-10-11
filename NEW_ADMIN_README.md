@@ -3,13 +3,13 @@ New admin quickstart — Mojistore web (layman language)
 Welcome! This document gives a simple, practical guide to the Mojistore web project and the admin options you can use.
 
 Who is this for
-- New developers or operators who need to run the site locally, manage caches, or test category visibility and banners.
+- New developers or operators who need to run the site locally, manage caches, or test banners and broadcasts.
 - Written in plain language with the common tasks you will perform.
 
 Project layout (simple)
 - api/ — The backend (Node.js + Express). Talks to the ERP/connector and the MySQL database.
   - src/routes — HTTP routes (APIs). Look here for admin/test endpoints.
-  - src/lib — helper code (caching, category visibility helpers, file-admin watcher).
+  - src/lib — helper code (caching, file-admin watcher).
   - tools — small utilities for running admin tasks from the command line.
 - mojistore/ — The frontend (React + Vite). Has a developer Test page used to exercise admin/test APIs.
 
@@ -34,10 +34,8 @@ Common tasks and how to do them
 Developer Test UI (quick)
 - The frontend includes a page used for development and admin tasks: the Test page (file: mojistore/src/pages/Test.jsx).
 - It has controls to:
-  - Inspect and edit global category visibility (hide categories from guests or all users).
-  - Apply per-contact category hides (hide categories only for a specific contact/customer).
   - Manage home banners (list, create, reorder, delete).
-  - Manage home broadcast messages (dev panel `/__test`) — these can be used to display sitewide notices on the home page via the admin Test panel or directly via DB table `app_home_broadcasts`.
+   - Manage home broadcast messages (dev panel /__test) — these can be used to display sitewide notices on the home page via the admin Test panel or directly via DB table `app_home_broadcasts`.
   - Flush caches and fetch cache stats (admin operations).
 
 Admin cache controls (what you can do)
@@ -59,10 +57,8 @@ File-based admin (watch a JSON file)
 - The server will process the flush list and then clear it so commands aren't repeated.
 - See: api/ADMIN_FILE_README.md and api/src/lib/fileAdmin.js
 
-Category visibility (what is enforced)
-- Global visibility: In the DB table `app_category_visibility` you can set whether a category is hidden for guests or for all users.
-- Per-contact visibility: `app_category_hidden_for_contacts` contains rows that hide categories for a particular contact (customer). The Test UI has controls to add/remove these for testing.
-- The backend enforces visibility everywhere: products, search, filters, home lists and cart responses are filtered so hidden categories do not appear.
+Legacy: category visibility
+- The category visibility feature has been removed from the application code. The database tables (`app_category_visibility`, `app_category_hidden_for_contacts`) remain present for historical/data purposes, but the backend and frontend no longer read or enforce these flags. If you need this behaviour restored, please open an issue so we can plan a controlled re-introduction.
 
 Security notes
 - The admin cache endpoints are protected by the environment variable ADMIN_CACHE_SECRET. If that is not set, the endpoints return 404 and cannot be used.
@@ -84,21 +80,8 @@ Quick examples (PowerShell)
 
 Where to look when things go wrong
 - Backend logs: api logs are printed to the console when running `npm run dev`.
-- Look at api/src/lib/cache.js and api/src/lib/categoryVisibility.js for caching and visibility logic.
-- If you change DB tables directly, flush the visibility cache or restart the server so changes are picked up.
-
-Broadcasts and Home modals (new)
-- Database: a new table `app_home_broadcasts` holds admin messages. A migration file was added: `api/migrations/20251010_create_app_home_broadcasts.sql` — run this against your MySQL instance to create the table.
-- API: the backend includes dev-only endpoints to manage broadcasts: `GET /api/test/broadcasts`, `POST /api/test/broadcasts`, `DELETE /api/test/broadcasts/:id`. Use the frontend Test page (`/__test`) to exercise these safely in dev.
-- Frontend: the Home page fetches `/api/home` and will display an Age Verification modal on first tab open (uses `sessionStorage` key) and then, if `broadcast` exists in the `/api/home` payload and is active, will show the Broadcast modal. The company name shown in the Age modal comes from the Vite env var `VITE_MOJISTORE_NAME` (set in `mojistore/.env` or `.env.local`).
-
-Applying the migration (example PowerShell)
-  # from a shell that has mysql client installed, or use your DB GUI tool
-  mysql -u youruser -p yourdb < api/migrations/20251010_create_app_home_broadcasts.sql
-
-Using the Test UI to create a broadcast (PowerShell example)
-  $body = @{ business_id = 1; title = 'Site notice'; body = 'We are updating prices tonight'; active = $true } | ConvertTo-Json
-  Invoke-RestMethod -Uri 'http://localhost:4000/api/test/broadcasts' -Method Post -Body $body -ContentType 'application/json'
+- Look at api/src/lib/cache.js for caching logic.
+- If you change DB tables directly, restart the server so changes are picked up.
 
 Contact and next steps
 - If you want UX improvements (confirmation modal when applying recursive hides, toasts, server-side search for large category sets), open an issue or ask here and someone will implement it.
@@ -146,8 +129,7 @@ If something doesn't work, try these steps in order. They are ordered from least
   - Look for stack traces or messages with the route name (e.g., "test visibility for-contact error").
 
 5) Changes to DB not showing?
-  - The visibility results are cached in memory. After changing DB rows directly flush the visibility cache or restart the server.
-  - Use the Test UI -> Flush visibility cache or call POST /api/test/visibility/flush.
+  - The results are cached in memory. After changing DB rows directly restart the server so changes are picked up.
 
 6) Large category lists slow the browser
   - The Test picker currently does client-side search. If categories are very large (>2000), consider adding server-side search.

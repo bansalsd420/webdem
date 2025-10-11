@@ -1,92 +1,90 @@
-/* Polished modal styles for Home modals (recreated) */
-:root{
-  --ms-bg: #ffffff;
-  --ms-overlay: rgba(0,0,0,0.6);
-  --ms-radius: 8px;
-  --ms-ink: #0b1220;
-  --ms-muted: #475569;
-  --ms-primary: #111827;
-  --ms-accent: #c92b2b; /* deep red for buttons */
-  --ms-accent-2: #ef4444; /* brighter accent */
+/* Home modals — Light theme to mirror the references */
+:root {
+  --hm-overlay-dark: rgba(0, 0, 0, 0.6);
+  --hm-card: #ffffff;
+  --hm-border: #e5e7eb;
+  --hm-text: #0f172a;
+  --hm-soft: #334155;
+  --hm-danger: #d43b3b; /* red button */
+  --hm-danger-hover: #c03535;
+  --hm-shadow-1: 0 8px 24px rgba(0,0,0,.18);
+  --hm-shadow-2: 0 20px 40px rgba(0,0,0,.18);
 }
 
-.ms-modal-overlay{
-  position:fixed;
-  inset:0;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  z-index:9999;
-  background:var(--ms-overlay);
-  padding:28px;
-  -webkit-font-smoothing:antialiased;
+@keyframes hm-overlay-in { from { opacity: 0 } to { opacity: 1 } }
+@keyframes hm-dialog-in {
+  from { opacity: 0; transform: translateY(10px) scale(.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-.ms-modal{
-  width:min(660px, 94%);
-  background:var(--ms-bg);
-  border-radius:12px;
-  box-shadow:0 30px 60px rgba(2,6,23,0.55);
-  overflow:hidden;
-  display:flex;
-  flex-direction:column;
-  border:1px solid rgba(11,17,32,0.06);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+.hm-overlay {
+  position: fixed;
+  inset: 0; display: grid; place-items: center;
+  background: var(--hm-overlay-dark);
+  backdrop-filter: blur(1px);
+  padding: 24px; z-index: 10000;
+  animation: hm-overlay-in .18s ease-out both;
 }
 
-.ms-modal-header{
-  padding:28px 32px 12px 32px;
-  border-bottom:1px solid rgba(11,17,32,0.04);
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  gap:10px;
+.hm-dialog {
+  position: relative; width: min(680px, 92vw);
+  color: var(--hm-text); background: var(--hm-card);
+  border-radius: 8px; overflow: hidden;
+  box-shadow: 0 22px 60px rgba(0,0,0,.25);
+  border: 1px solid rgba(0,0,0,.06);
+  animation: hm-dialog-in .22s cubic-bezier(.2,.7,.25,1) both;
 }
 
-.ms-modal-brand{font-weight:800;color:var(--ms-primary);font-size:22px;letter-spacing:0.3px}
-.ms-modal-brand img{max-height:48px;display:block}
-.ms-modal-logo{height:56px;object-fit:contain;display:block;margin-bottom:4px}
-.ms-modal-title{margin:0;color:var(--ms-ink);font-size:18px;font-weight:700}
+.hm-dialog::before { content: none; }
 
-.ms-modal-body{
-  padding:18px 36px 18px 36px;
-  color:var(--ms-muted);
-  line-height:1.6;
-  font-size:15px;
-  text-align:center;
+.hm-title { margin: 0; padding: 6px 24px 2px 24px; text-align: center; font-weight: 700; font-size: 20px; letter-spacing: .1px; color: #111827; }
+
+.hm-body { padding: 14px 22px 22px 22px; }
+
+/* close button removed as requested */
+
+/* Age modal content */
+.hm-age { text-align: center; }
+.hm-age-dialog { width: min(600px, 92vw); }
+.hm-brand-logo { display: grid; place-items: center; padding-top: 24px; }
+.hm-brand-logo img { height: 64px; width: auto; }
+.hm-brand-name { font-weight: 800; font-size: 18px; padding-top: 20px; }
+.hm-divider { height: 1px; background: var(--hm-border); margin: 16px 24px; }
+.hm-age .hm-copy { color: var(--hm-soft); font-size: 14.5px; line-height: 1.75; padding: 0 28px; text-align: justify; }
+.hm-actions { display: flex; gap: 14px; justify-content: center; margin-top: 18px; flex-wrap: wrap; }
+
+.hm-btn { position: relative; border-radius: 4px; padding: 11px 18px; cursor: pointer;
+  border: 1px solid var(--hm-border); background: #f8fafc; color: #0f172a;
+  transition: transform .12s ease, filter .12s ease, background .12s ease, border-color .12s ease;
+}
+.hm-btn:hover { background: #eef2f7; border-color: #d1d5db; }
+.hm-btn:active { transform: translateY(1px); }
+.hm-btn:focus { outline: none; box-shadow: 0 0 0 3px rgba(96,165,250,.28); }
+
+.hm-btn-danger { border: 0; background: var(--hm-danger); color: #fff; letter-spacing: .6px; font-weight: 700; }
+.hm-btn-danger:hover { background: var(--hm-danger-hover); }
+.hm-btn-wide { min-width: 180px; }
+
+/* Broadcast rich content */
+.hm-broadcast-dialog { width: min(600px, 92vw); }
+.hm-broadcast { color: #111827; line-height: 1.8; padding: 2px 28px; text-align: justify; max-width: 54ch; margin: 0 auto; }
+.hm-broadcast p { margin: 10px 0; color: #374151; }
+.hm-broadcast h1,.hm-broadcast h2,.hm-broadcast h3 { margin: 10px 0 6px; color: #111827; }
+.hm-broadcast a { color: #2563eb; text-decoration: underline; }
+.hm-broadcast ul, .hm-broadcast ol { padding-left: 1.2rem; }
+.hm-broadcast strong { color: #0f172a; }
+.hm-broadcast hr { border: none; height: 1px; background: #e5e7eb; margin: 10px 0; }
+.hm-broadcast code { background: #f8fafc; border: 1px solid #e5e7eb; padding: 2px 6px; border-radius: 4px; }
+
+/* Responsive tweaks */
+@media (max-width: 520px) {
+  .hm-title { font-size: 19px; padding: 18px 16px 4px; }
+  .hm-body { padding: 12px 16px 16px; }
+  .hm-btn { width: 100%; justify-content: center; }
 }
 
-.ms-broadcast-body{color:var(--ms-ink);font-size:15px;text-align:left}
-
-.ms-modal-divider{height:1px;background:linear-gradient(90deg, rgba(0,0,0,0.04), rgba(0,0,0,0.02));width:84%;margin:6px auto 0}
-
-.ms-modal-footer{
-  display:flex;
-  gap:18px;
-  justify-content:center;
-  padding:20px 28px 28px 28px;
-  border-top:1px solid rgba(11,17,32,0.03);
-  background:linear-gradient(180deg, rgba(255,255,255,0.01), transparent);
-}
-
-.ms-btn{border-radius:8px;padding:12px 18px;border:0;font-weight:800;cursor:pointer;font-size:14px;letter-spacing:1px}
-.ms-btn-ghost{background:transparent;color:var(--ms-primary);border:1px solid rgba(11,17,32,0.06);padding:10px 16px}
-.ms-btn-primary{background:var(--ms-accent);color:#fff;box-shadow:0 8px 30px rgba(201,43,43,0.18);min-width:150px}
-.ms-btn-primary:hover{filter:brightness(.98)}
-.ms-btn-ghost:hover{background:rgba(0,0,0,0.02)}
-
-.ms-btn-secondary{background:var(--ms-accent-2);color:#fff;min-width:150px;box-shadow:0 8px 28px rgba(239,68,68,0.12)}
-
-/* Responsiveness */
-@media (max-width:520px){
-  .ms-modal{width:94%;}
-  .ms-modal-header{padding:18px}
-  .ms-modal-body{padding:14px}
-  .ms-modal-footer{padding:12px}
-  .ms-modal-brand{font-size:18px}
-  .ms-modal-title{font-size:16px}
-}
-
-@media (prefers-reduced-motion: no-preference){
-  .ms-modal{transform:translateY(0);transition:transform .28s cubic-bezier(.2,.9,.3,1),opacity .2s}
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .hm-overlay { animation: none; }
+  .hm-dialog { animation: none; }
 }
